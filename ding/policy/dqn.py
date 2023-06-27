@@ -420,6 +420,9 @@ class DQNPolicy(Policy):
         output = default_decollate(output)
         return {i: d for i, d in zip(data_id, output)}
 
+    def monitor_vars(self) -> List[str]:
+        return ['cur_lr', 'total_loss', 'q_value']
+
 
 @POLICY_REGISTRY.register('dqn_stdim')
 class DQNSTDIMPolicy(DQNPolicy):

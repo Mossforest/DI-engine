@@ -458,6 +458,9 @@ class PPOPolicy(Policy):
             variables += ['mu_mean', 'sigma_mean', 'sigma_grad', 'act']
         return variables
 
+    def monitor_vars(self) -> List[str]:
+        return self._monitor_vars_learn()
+
 
 @POLICY_REGISTRY.register('ppo_pg')
 class PPOPGPolicy(Policy):
@@ -969,6 +972,9 @@ class PPOOffPolicy(Policy):
         return super()._monitor_vars_learn() + [
             'policy_loss', 'value_loss', 'entropy_loss', 'adv_abs_max', 'approx_kl', 'clipfrac'
         ]
+
+    def monitor_vars(self) -> List[str]:
+        return self._monitor_vars_learn()
 
 
 @POLICY_REGISTRY.register('ppo_stdim')

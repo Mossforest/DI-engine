@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import Optional, Union
 from ditk import logging
 from easydict import EasyDict
@@ -7,29 +6,29 @@ from functools import partial
 import torch
 import treetensor.torch as ttorch
 from ding.framework import task, OnlineRLContext
-from ding.framework.middleware import CkptSaver, multistep_trainer, \
-    wandb_online_logger, offline_data_saver, termination_checker, interaction_evaluator, StepCollector, data_pusher, \
-    OffPolicyLearner, final_ctx_saver
+from ding.framework.middleware import CkptSaver, trainer, \
+    wandb_online_logger, offline_data_saver, termination_checker, interaction_evaluator, StepCollector, \
+    pg_estimator, final_ctx_saver, EpisodeCollector
 from ding.envs import BaseEnv, BaseEnvManagerV2, SubprocessEnvManagerV2
-from ding.policy import TD3Policy
+from ding.policy import PGPolicy
 from ding.utils import set_pkg_seed
 from ding.config import Config, save_config_py, compile_config
-from ding.model import QAC
-from ding.data import DequeBuffer
+from ding.model import PG
+from ding.model import model_wrap
 from ding.bonus.config import get_instance_config, get_instance_env
 from ding.bonus.common import TrainingReturn, EvalReturn
 
 
-class TD3Agent:
+class PGAgent:
     supported_env_list = [
+        'lunarlander_discrete',
+        'bipedalwalker',
+        'pendulum',
         'hopper',
         'HalfCheetah',
         'Walker2d',
-        'lunarlander_continuous',
-        'bipedalwalker',
-        'pendulum',
     ]
-    algorithm = 'TD3'
+    algorithm = 'PG'
 
     def __init__(
             self,
@@ -41,23 +40,21 @@ class TD3Agent:
             policy_state_dict: str = None,
     ) -> None:
         if isinstance(env, str):
-            assert env in TD3Agent.supported_env_list, "Please use supported envs: {}".format(
-                TD3Agent.supported_env_list
-            )
+            assert env in PGAgent.supported_env_list, "Please use supported envs: {}".format(PGAgent.supported_env_list)
             self.env = get_instance_env(env)
             if cfg is None:
                 # 'It should be default env tuned config'
-                cfg = get_instance_config(env, algorithm=TD3Agent.algorithm)
+                cfg = get_instance_config(env, algorithm=PGAgent.algorithm)
             else:
                 assert isinstance(cfg, EasyDict), "Please use EasyDict as config data type."
 
             if exp_name is not None:
                 cfg.exp_name = exp_name
-            self.cfg = compile_config(cfg, policy=TD3Policy)
+            self.cfg = compile_config(cfg, policy=PGPolicy)
             self.exp_name = self.cfg.exp_name
 
         elif isinstance(env, BaseEnv):
-            self.cfg = compile_config(cfg, policy=TD3Policy)
+            self.cfg = compile_config(cfg, policy=PGPolicy)
             raise NotImplementedError
         else:
             raise TypeError("not support env type: {}, only strings and instances of `BaseEnv` now".format(type(env)))
@@ -68,9 +65,8 @@ class TD3Agent:
             os.makedirs(self.exp_name)
         save_config_py(self.cfg, os.path.join(self.exp_name, 'policy_config.py'))
         if model is None:
-            model = QAC(**self.cfg.policy.model)
-        self.buffer_ = DequeBuffer(size=self.cfg.policy.other.replay_buffer.replay_buffer_size)
-        self.policy = TD3Policy(self.cfg.policy, model=model)
+            model = PG(**self.cfg.policy.model)
+        self.policy = PGPolicy(self.cfg.policy, model=model)
         if policy_state_dict is not None:
             self.policy.learn_mode.load_state_dict(policy_state_dict)
         self.checkpoint_save_dir = os.path.join(self.exp_name, "ckpt")
@@ -95,16 +91,9 @@ class TD3Agent:
 
         with task.start(ctx=OnlineRLContext()):
             task.use(interaction_evaluator(self.cfg, self.policy.eval_mode, evaluator_env))
-            task.use(
-                StepCollector(
-                    self.cfg,
-                    self.policy.collect_mode,
-                    collector_env,
-                    random_collect_size=self.cfg.policy.random_collect_size
-                )
-            )
-            task.use(data_pusher(self.cfg, self.buffer_))
-            task.use(OffPolicyLearner(self.cfg, self.policy.learn_mode, self.buffer_))
+            task.use(EpisodeCollector(self.cfg, self.policy.collect_mode, collector_env))
+            task.use(pg_estimator(self.policy.collect_mode))
+            task.use(trainer(self.cfg, self.policy.learn_mode))
             task.use(CkptSaver(policy=self.policy, save_dir=self.checkpoint_save_dir, train_freq=n_iter_save_ckpt))
             task.use(
                 wandb_online_logger(
@@ -142,9 +131,18 @@ class TD3Agent:
                 obs = ttorch.as_tensor(obs).unsqueeze(0)
                 if cuda and torch.cuda.is_available():
                     obs = obs.cuda()
-                action = forward_fn(obs, mode='compute_actor')["action"]
+                output = forward_fn(obs)
+                if self.policy._cfg.deterministic_eval:
+                    if self.policy._cfg.action_space == 'discrete':
+                        output['action'] = output['logit'].argmax(dim=-1)
+                    elif self.policy._cfg.action_space == 'continuous':
+                        output['action'] = output['logit']['mu']
+                    else:
+                        raise KeyError("invalid action_space: {}".format(self.policy._cfg.action_space))
+                else:
+                    output['action'] = output['dist'].sample()
                 # squeeze means delete batch dim, i.e. (1, A) -> (A, )
-                action = action.squeeze(0).detach().cpu().numpy()
+                action = output['action'].squeeze(0).detach().cpu().numpy()
                 return action
 
             return _forward
@@ -166,7 +164,7 @@ class TD3Agent:
             step += 1
             if done:
                 break
-        logging.info(f'TD3 deploy is finished, final episode return with {step} steps is: {return_}')
+        logging.info(f'PG deploy is finished, final episode return with {step} steps is: {return_}')
 
         return return_
 
@@ -199,7 +197,7 @@ class TD3Agent:
             task.use(offline_data_saver(save_data_path, data_type='hdf5'))
             task.run(max_step=1)
         logging.info(
-            f'TD3 collecting is finished, more than {n_sample} samples are collected and saved in `{save_data_path}`'
+            f'PG collecting is finished, more than {n_sample} samples are collected and saved in `{save_data_path}`'
         )
 
     def batch_evaluate(
