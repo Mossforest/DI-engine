@@ -3,7 +3,7 @@ from collections import namedtuple
 import copy
 import torch
 
-from ding.torch_utils import Adam, to_device, ContrastiveLoss
+from ding.torch_utils import RMSprop, Adam, to_device, ContrastiveLoss
 from ding.rl_utils import q_nstep_td_data, q_nstep_td_error, get_nstep_return_data, get_train_sample
 from ding.model import model_wrap
 from ding.utils import POLICY_REGISTRY
@@ -174,7 +174,9 @@ class DQNPolicy(Policy):
         self._priority = self._cfg.priority
         self._priority_IS_weight = self._cfg.priority_IS_weight
         # Optimizer
-        self._optimizer = Adam(self._model.parameters(), lr=self._cfg.learn.learning_rate)
+        # TODO: changed 
+        self._optimizer = RMSprop(self._model.parameters(), lr=self._cfg.learn.learning_rate, momentum=0.95)
+        # self._optimizer = Adam(self._model.parameters(), lr=self._cfg.learn.learning_rate)
 
         self._gamma = self._cfg.discount_factor
         self._nstep = self._cfg.nstep
