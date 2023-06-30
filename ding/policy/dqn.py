@@ -174,9 +174,7 @@ class DQNPolicy(Policy):
         self._priority = self._cfg.priority
         self._priority_IS_weight = self._cfg.priority_IS_weight
         # Optimizer
-        # TODO: changed 
-        self._optimizer = RMSprop(self._model.parameters(), lr=self._cfg.learn.learning_rate, momentum=0.95)
-        # self._optimizer = Adam(self._model.parameters(), lr=self._cfg.learn.learning_rate)
+        self._optimizer = Adam(self._model.parameters(), lr=self._cfg.learn.learning_rate)
 
         self._gamma = self._cfg.discount_factor
         self._nstep = self._cfg.nstep
@@ -263,7 +261,7 @@ class DQNPolicy(Policy):
         self._target_model.update(self._learn_model.state_dict())
         return {
             'cur_lr': self._optimizer.defaults['lr'],
-            'total_loss': loss.item(),
+            'loss': loss.item(),
             'q_value': q_value.mean().item(),
             'target_q_value': target_q_value.mean().item(),
             'priority': td_error_per_sample.abs().tolist(),
@@ -272,7 +270,7 @@ class DQNPolicy(Policy):
         }
 
     def _monitor_vars_learn(self) -> List[str]:
-        return ['cur_lr', 'total_loss', 'q_value', 'target_q_value']
+        return ['cur_lr', 'loss', 'q_value', 'target_q_value', 'priority']
 
     def _state_dict_learn(self) -> Dict[str, Any]:
         """

@@ -1,0 +1,152 @@
+wandb_version: 1
+
+env:
+  desc: null
+  value:
+    manager:
+      episode_num: .inf
+      max_retry: 5
+      step_timeout: null
+      auto_reset: true
+      reset_timeout: null
+      retry_type: reset
+      retry_waiting_time: 0.1
+      shared_memory: true
+      copy_on_get: true
+      context: fork
+      wait_num: .inf
+      step_wait_timeout: null
+      connect_timeout: 60
+      reset_inplace: false
+      cfg_type: SyncSubprocessEnvManagerDict
+      type: subprocess
+    stop_value: 10000000000
+    n_evaluator_episode: 8
+    type: atari
+    import_names:
+    - dizoo.atari.envs.atari_env
+    collector_env_num: 8
+    evaluator_env_num: 8
+    env_id: AsterixNoFrameskip-v4
+    frame_stack: 4
+policy:
+  desc: null
+  value:
+    model:
+      encoder_hidden_size_list:
+      - 32
+      - 64
+      - 64
+      - 512
+      obs_shape:
+      - 4
+      - 84
+      - 84
+      action_shape: 9
+    learn:
+      learner:
+        train_iterations: 1000000000
+        dataloader:
+          num_workers: 0
+        log_policy: true
+        hook:
+          load_ckpt_before_run: ''
+          log_show_after_iter: 100
+          save_ckpt_after_iter: 10000
+          save_ckpt_after_run: true
+        cfg_type: BaseLearnerDict
+      update_per_collect: 4
+      batch_size: 32
+      learning_rate: 0.00025
+      target_update_freq: 10000
+      target_theta: 0.005
+      ignore_done: false
+      train_iterations: 120000000
+    collect:
+      collector:
+        deepcopy_obs: false
+        transform_obs: false
+        collect_print_freq: 100
+        cfg_type: SampleSerialCollectorDict
+        type: sample
+      n_sample: 100
+      unroll_len: 1
+    eval:
+      evaluator:
+        eval_freq: 2000000
+        render:
+          render_freq: -1
+          mode: train_iter
+        cfg_type: InteractionSerialEvaluatorDict
+        stop_value: 10000000000
+        n_episode: 8
+    other:
+      replay_buffer:
+        type: advanced
+        replay_buffer_size: 1000000
+        max_use: .inf
+        max_staleness: .inf
+        alpha: 0.6
+        beta: 0.4
+        anneal_step: 100000
+        enable_track_used_data: false
+        deepcopy: false
+        thruput_controller:
+          push_sample_rate_limit:
+            max: .inf
+            min: 0
+          window_seconds: 30
+          sample_min_limit_ratio: 1
+        monitor:
+          sampled_data_attr:
+            average_range: 5
+            print_freq: 200
+          periodic_thruput:
+            seconds: 60
+        cfg_type: AdvancedReplayBufferDict
+      eps:
+        type: linear
+        start: 1.0
+        end: 0.1
+        decay: 1000000
+      commander:
+        cfg_type: BaseSerialCommanderDict
+    on_policy: false
+    cuda: true
+    multi_gpu: false
+    bp_update_sync: true
+    traj_len_inf: false
+    type: dqn
+    priority: false
+    priority_IS_weight: false
+    discount_factor: 0.99
+    nstep: 1
+    cfg_type: DQNPolicyDict
+exp_name:
+  desc: null
+  value: aterix_dqn_seed0_230626_095544
+seed:
+  desc: null
+  value: 0
+_wandb:
+  desc: null
+  value:
+    python_version: 3.8.5
+    cli_version: 0.15.0
+    framework: torch
+    is_jupyter_run: false
+    is_kaggle_kernel: false
+    start_time: 1687773351.444068
+    t:
+      1:
+      - 1
+      - 5
+      - 53
+      - 55
+      3:
+      - 16
+      - 23
+      4: 3.8.5
+      5: 0.15.0
+      8:
+      - 5

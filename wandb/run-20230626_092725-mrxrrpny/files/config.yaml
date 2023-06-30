@@ -1,0 +1,71 @@
+wandb_version: 1
+
+exp_name:
+  desc: null
+  value: aterix_dqn_seed0
+env:
+  desc: null
+  value:
+    collector_env_num: 8
+    evaluator_env_num: 8
+    n_evaluator_episode: 8
+    env_id: AsterixNoFrameskip-v4
+    frame_stack: 4
+policy:
+  desc: null
+  value:
+    cuda: true
+    priority: false
+    model:
+      obs_shape:
+      - 4
+      - 84
+      - 84
+      action_shape: 9
+      encoder_hidden_size_list:
+      - 32
+      - 64
+      - 64
+      - 512
+    discount_factor: 0.99
+    learn:
+      train_iterations: 120000000
+      update_per_collect: 4
+      batch_size: 32
+      learning_rate: 0.00025
+      target_update_freq: 10000
+    collect:
+      n_sample: 100
+    eval:
+      evaluator:
+        eval_freq: 2000000
+    other:
+      eps:
+        type: linear
+        start: 1.0
+        end: 0.1
+        decay: 1000000
+      replay_buffer:
+        replay_buffer_size: 1000000
+_wandb:
+  desc: null
+  value:
+    python_version: 3.8.5
+    cli_version: 0.15.0
+    framework: torch
+    is_jupyter_run: false
+    is_kaggle_kernel: false
+    start_time: 1687771645.906324
+    t:
+      1:
+      - 1
+      - 5
+      - 53
+      - 55
+      3:
+      - 16
+      - 23
+      4: 3.8.5
+      5: 0.15.0
+      8:
+      - 5

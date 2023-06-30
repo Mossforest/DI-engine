@@ -125,6 +125,7 @@ def wandb_online_logger(
         model: Optional[torch.nn.Module] = None,
         anonymous: bool = False,
         project_name: str = 'default-project',
+        exp_name: str = None,
         wandb_sweep: bool = False,
 ) -> Callable:
     '''
@@ -154,14 +155,26 @@ def wandb_online_logger(
     # Settings can be covered by calling wandb.init() at the top of the script
     if not wandb_sweep:
         if anonymous:
-            wandb.init(project=project_name, reinit=True, anonymous="must")
+            if exp_name:
+                wandb.init(project=project_name, reinit=True, anonymous="must", name=exp_name)
+            else:
+                wandb.init(project=project_name, reinit=True, anonymous="must")
         else:
-            wandb.init(project=project_name, reinit=True)
+            if exp_name:
+                wandb.init(project=project_name, reinit=True, name=exp_name)
+            else:
+                wandb.init(project=project_name, reinit=True)
     else:
         if anonymous:
-            wandb.init(project=project_name, anonymous="must")
+            if exp_name:
+                wandb.init(project=project_name, anonymous="must", name=exp_name)
+            else:
+                wandb.init(project=project_name, anonymous="must")
         else:
-            wandb.init(project=project_name)
+            if exp_name:
+                wandb.init(project=project_name, name=exp_name)
+            else:
+                wandb.init(project=project_name)
         plt.switch_backend('agg')
     if cfg is None:
         cfg = EasyDict(
