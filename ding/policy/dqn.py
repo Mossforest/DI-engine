@@ -261,7 +261,7 @@ class DQNPolicy(Policy):
         self._target_model.update(self._learn_model.state_dict())
         return {
             'cur_lr': self._optimizer.defaults['lr'],
-            'loss': loss.item(),
+            'total_loss': loss.item(),
             'q_value': q_value.mean().item(),
             'target_q_value': target_q_value.mean().item(),
             'priority': td_error_per_sample.abs().tolist(),
@@ -270,7 +270,7 @@ class DQNPolicy(Policy):
         }
 
     def _monitor_vars_learn(self) -> List[str]:
-        return ['cur_lr', 'loss', 'q_value', 'target_q_value', 'priority']
+        return ['cur_lr', 'total_loss', 'q_value', 'target_q_value', 'priority']
 
     def _state_dict_learn(self) -> Dict[str, Any]:
         """

@@ -175,27 +175,31 @@ class AveragedDQNPolicy(DQNPolicy):
         if not hasattr(self, '_prime_model_list'):
             self._prime_model_list = [copy.deepcopy(self._model) for _ in range(self._num_of_prime)]
 
-        # use model_wrapper for specialized demands of different modes
-        self._target_model = copy.deepcopy(self._model)
+        # TODO: update lists of target model
+        # # use model_wrapper for specialized demands of different modes
+        self._target_model_list = copy.deepcopy(self._prime_model_list)
         if 'target_update_freq' in self._cfg.learn: 
-            self._target_model = model_wrap(
-                self._target_model,
-                wrapper_name='target',
-                update_type='assign',
-                update_kwargs={'freq': self._cfg.learn.target_update_freq}
-            )
+            for idx, target_model in enumerate(self._target_model_list):
+                self._target_model_list[idx] = model_wrap(
+                    target_model,
+                    wrapper_name='target',
+                    update_type='assign',
+                    update_kwargs={'freq': self._cfg.learn.target_update_freq}
+                )
         elif 'target_theta' in self._cfg.learn:
-            self._target_model = model_wrap(
-                self._target_model,
-                wrapper_name='target',
-                update_type='momentum',
-                update_kwargs={'theta': self._cfg.learn.target_theta}
-            )
+            for idx, target_model in enumerate(self._target_model_list):
+                self._target_model_list[idx] = model_wrap(
+                    target_model,
+                    wrapper_name='target',
+                    update_type='momentum',
+                    update_kwargs={'theta': self._cfg.learn.target_theta}
+                )
         else:
             raise RuntimeError("DQN needs target network, please either indicate target_update_freq or target_theta")
         self._learn_model = model_wrap(self._model, wrapper_name='argmax_sample')
         self._learn_model.reset()
-        self._target_model.reset()
+        for target_model in self._target_model_list:
+            target_model.reset()
 
     def _forward_learn(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -227,9 +231,10 @@ class AveragedDQNPolicy(DQNPolicy):
         # Q-learning forward
         # ====================
         self._learn_model.train()
-        self._target_model.train()
         for prime_model in self._prime_model_list:
             prime_model.train()
+        for target_model in self._target_model_list:
+            target_model.train()
         # Current q value (main model)
         q_value = self._learn_model.forward(data['obs'])['logit']
         with torch.no_grad():
@@ -240,7 +245,11 @@ class AveragedDQNPolicy(DQNPolicy):
 
         # target q value
         with torch.no_grad():
-            target_q_value = self._target_model.forward(data['next_obs'])['logit']
+            # target q value of target net (k prime)
+            target_q_value = 0
+            for target_model in self._target_model_list:
+                target_q_value += target_model.forward(data['next_obs'])['logit']
+            target_q_value /= self._num_of_prime
             # Max q value action (main model), i.e. Double DQN
             next_q_value = self._learn_model.forward(data['next_obs'])['logit']
             for prime_model in self._prime_model_list[1:]:
@@ -263,16 +272,17 @@ class AveragedDQNPolicy(DQNPolicy):
         if self._cfg.multi_gpu:
             self.sync_gradients(self._learn_model)
         self._optimizer.step()
-
-        # =============
-        # after update
-        # =============
-        self._target_model.update(self._learn_model.state_dict())
         
         # update prime models
         for i in reversed(range(1, self._num_of_prime)):
             self._prime_model_list[i].load_state_dict(self._prime_model_list[i - 1].state_dict(), strict=True)
         self._prime_model_list[0].load_state_dict(self._learn_model.state_dict(), strict=True)
+        
+        # =============
+        # after update
+        # =============
+        for idx in range(self._num_of_prime):
+            self._target_model_list[idx].update(self._prime_model_list[idx].state_dict())
         
         return {
             'cur_lr': self._optimizer.defaults['lr'],
@@ -342,6 +352,40 @@ class AveragedDQNPolicy(DQNPolicy):
         output = default_decollate(output)
         return {i: d for i, d in zip(data_id, output)}
 
+
+    def _state_dict_learn(self) -> Dict[str, Any]:
+            """
+            Overview:
+                Return the state_dict of learn mode, usually including model and optimizer.
+            Returns:
+                - state_dict (:obj:`Dict[str, Any]`): the dict of current policy learn state, for saving and restoring.
+            """
+            prime_list = [learn_model.state_dict() for learn_model in self._prime_model_list]
+            target_list = [learn_model.state_dict() for learn_model in self._target_model_list]
+            return {
+                'model': self._learn_model.state_dict(),
+                'prime_list': prime_list,
+                'target_list': target_list,
+                'optimizer': self._optimizer.state_dict(),
+            }
+
+    def _load_state_dict_learn(self, state_dict: Dict[str, Any]) -> None:
+        """
+        Overview:
+            Load the state_dict variable into policy learn mode.
+        Arguments:
+            - state_dict (:obj:`Dict[str, Any]`): the dict of policy learn state saved before.
+
+        .. tip::
+            If you want to only load some parts of model, you can simply set the ``strict`` argument in \
+            load_state_dict to ``False``, or refer to ``ding.torch_utils.checkpoint_helper`` for more \
+            complicated operation.
+        """
+        for idx in range(self._num_of_prime):
+            self._learn_model_list[idx].load_state_dict(state_dict['prime_list'][idx])
+            self._target_model_list[idx].load_state_dict(state_dict['target_list'][idx])
+        self._learn_model.load_state_dict(state_dict['model'])
+        self._optimizer.load_state_dict(state_dict['optimizer'])
 
 
 @POLICY_REGISTRY.register('ensemble_dqn')

@@ -30,7 +30,7 @@ def make_args():
 
 def make_config(args):
     breakout_averaged_dqn_config = dict(
-        exp_name=f'adqn_prime{args.prime}_seed{args.seed}',
+        exp_name=f'adqn_prime{args.prime}_seed{args.seed}_newtarget',
         seed=args.seed,
         env=dict(
             collector_env_num=8,
@@ -50,7 +50,7 @@ def make_config(args):
             num_of_prime=args.prime,
             discount_factor=0.99,
             learn=dict(
-                train_iterations=120000000,
+                train_iterations=40000000,
                 update_per_collect=10,
                 batch_size=32,
                 learning_rate=0.0001,
@@ -122,7 +122,8 @@ def main(main_config, create_config):
         # task.use(nstep_reward_enhancer(cfg))
         task.use(data_pusher(cfg, buffer))
         task.use(OffPolicyLearner(cfg, policy.learn_mode, buffer))
-        task.use(wandb_online_logger(project_name='breakout_exp', exp_name=cfg.exp_name))
+        metric_list = ['cur_lr', 'total_loss', 'q_value', 'target_q_value', 'priority']
+        task.use(wandb_online_logger(project_name='breakout_exp', exp_name=cfg.exp_name, metric_list=metric_list))
         task.use(online_logger(train_show_freq=10000))
         task.use(CkptSaver(policy, cfg.exp_name, train_freq=10000000))
         task.run()
