@@ -247,7 +247,7 @@ class AveragedDQNPolicy(DQNPolicy):
         with torch.no_grad():
             # target q value of target net (k prime)
             target_q_value = 0
-            for target_model in self._target_model_list:
+            for target_model in self._prime_model_list:
                 target_q_value += target_model.forward(data['next_obs'])['logit']
             target_q_value /= self._num_of_prime
             # Max q value action (main model), i.e. Double DQN
