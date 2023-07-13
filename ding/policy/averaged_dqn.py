@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Tuple
-from collections import namedtuple
+from collections import deque
 import copy
 import torch
 
@@ -173,7 +173,7 @@ class AveragedDQNPolicy(DQNPolicy):
         
         # build the prime_model_list for averaged_DQN
         if not hasattr(self, '_prime_model_list'):
-            self._prime_model_list = [copy.deepcopy(self._model) for _ in range(self._num_of_prime)]
+            self._prime_model_list = deque([copy.deepcopy(self._model) for _ in range(self._num_of_prime)])
 
         # TODO: update lists of target model
         # # use model_wrapper for specialized demands of different modes
@@ -239,7 +239,9 @@ class AveragedDQNPolicy(DQNPolicy):
         q_value = self._learn_model.forward(data['obs'])['logit']
         with torch.no_grad():
             # q values of prime models, skip [0] the same as learn_model
-            for prime_model in self._prime_model_list[1:]:
+            for idx, prime_model in enumerate(self._prime_model_list):
+                if idx == 0:
+                    continue
                 q_value += prime_model.forward(data['obs'])['logit']
         q_value /= self._num_of_prime
 
@@ -252,11 +254,12 @@ class AveragedDQNPolicy(DQNPolicy):
             target_q_value /= self._num_of_prime
             # Max q value action (main model), i.e. Double DQN
             next_q_value = self._learn_model.forward(data['next_obs'])['logit']
-            for prime_model in self._prime_model_list[1:]:
+            for idx, prime_model in enumerate(self._prime_model_list):
+                if idx == 0:
+                    continue
                 next_q_value += prime_model.forward(data['next_obs'])['logit']
             next_q_value /= self._num_of_prime
-            target_q_action = [v.argmax(dim=-1) for v in next_q_value]
-            target_q_action = torch.stack(target_q_action).squeeze()
+            target_q_action = next_q_value.argmax(dim=-1)
 
         data_n = q_nstep_td_data(
             q_value, target_q_value, data['action'], target_q_action, data['reward'], data['done'], data['weight']
@@ -274,9 +277,12 @@ class AveragedDQNPolicy(DQNPolicy):
         self._optimizer.step()
         
         # update prime models
-        for i in reversed(range(1, self._num_of_prime)):
-            self._prime_model_list[i].load_state_dict(self._prime_model_list[i - 1].state_dict(), strict=True)
-        self._prime_model_list[0].load_state_dict(self._learn_model.state_dict(), strict=True)
+        # for i in reversed(range(1, self._num_of_prime)):
+        #     self._prime_model_list[i].load_state_dict(self._prime_model_list[i - 1].state_dict(), strict=True)
+        # self._prime_model_list[0].load_state_dict(self._learn_model.state_dict(), strict=True)
+        tmp_model = self._prime_model_list.pop()
+        tmp_model.load_state_dict(self._learn_model.state_dict(), strict=True)
+        self._prime_model_list.appendleft(tmp_model)
         
         # =============
         # after update
@@ -294,6 +300,109 @@ class AveragedDQNPolicy(DQNPolicy):
             # '[histogram]action_distribution': data['action'],
         }
 
+    def _init_collect(self) -> None:
+        """
+        Overview:
+            Collect mode init method. Called by ``self.__init__``, initialize algorithm arguments and collect_model, \
+            enable the eps_greedy_sample for exploration.
+        """
+        self._unroll_len = self._cfg.collect.unroll_len
+        self._gamma = self._cfg.discount_factor  # necessary for parallel
+        self._nstep = self._cfg.nstep  # necessary for parallel
+        # self._collect_model = model_wrap(self._model, wrapper_name='eps_greedy_sample')
+        # self._collect_model.reset()
+        self._num_of_prime = self._cfg.num_of_prime
+        if not hasattr(self, '_prime_model_list'):
+            self._prime_model_list = deque([copy.deepcopy(self._model) for _ in range(self._num_of_prime)])
+        self._collect_model_list = self._prime_model_list
+
+    def _forward_collect(self, data: Dict[int, Any], eps: float) -> Dict[int, Any]:
+        """
+        Overview:
+            Forward computation graph of collect mode(collect training data), with eps_greedy for exploration.
+        Arguments:
+            - data (:obj:`Dict[str, Any]`): Dict type data, stacked env data for predicting policy_output(action), \
+                values are torch.Tensor or np.ndarray or dict/list combinations, keys are env_id indicated by integer.
+            - eps (:obj:`float`): epsilon value for exploration, which is decayed by collected env step.
+        Returns:
+            - output (:obj:`Dict[int, Any]`): The dict of predicting policy_output(action) for the interaction with \
+                env and the constructing of transition.
+        ArgumentsKeys:
+            - necessary: ``obs``
+        ReturnsKeys
+            - necessary: ``logit``, ``action``
+        """
+        data_id = list(data.keys())
+        data = default_collate(list(data.values()))
+        if self._cuda:
+            data = to_device(data, self._device)
+        for collect_model in self._collect_model_list:
+            collect_model.eval()
+        # eps_greedy_sample wrapper's forward
+        with torch.no_grad():
+            import numpy as np
+            def sample_action(logit=None, prob=None):
+                if prob is None:
+                    prob = torch.softmax(logit, dim=-1)
+                shape = prob.shape
+                prob += 1e-8
+                prob = prob.view(-1, shape[-1])
+                # prob can also be treated as weight in multinomial sample
+                action = torch.multinomial(prob, 1).squeeze(-1)
+                action = action.view(*shape[:-1])
+                return action
+            
+            output = self._collect_model_list[0].forward(data)
+            q_value = 0
+            for collect_model in self._collect_model_list:
+                q_value += collect_model.forward(data)['logit']
+            q_value /= self._num_of_prime
+            logit = q_value
+            assert isinstance(logit, torch.Tensor) or isinstance(logit, list)
+            if isinstance(logit, torch.Tensor):
+                logit = [logit]
+            output['logit'] = logit
+            
+            if 'action_mask' in output:
+                mask = output['action_mask']
+                if isinstance(mask, torch.Tensor):
+                    mask = [mask]
+                logit = [l.sub_(1e8 * (1 - m)) for l, m in zip(logit, mask)]
+            else:
+                mask = None
+            action = []
+            if isinstance(eps, dict):
+                # for NGU policy, eps is a dict, each collect env has a different eps
+                for i, l in enumerate(logit[0]):
+                    eps_tmp = eps[i]
+                    if np.random.random() > eps_tmp:
+                        action.append(l.argmax(dim=-1))
+                    else:
+                        if mask is not None:
+                            action.append(
+                                sample_action(prob=mask[0][i].float().unsqueeze(0)).to(logit[0].device).squeeze(0)
+                            )
+                        else:
+                            action.append(torch.randint(0, l.shape[-1], size=l.shape[:-1]).to(logit[0].device))
+                action = torch.stack(action, dim=-1)  # shape torch.size([env_num])
+            else:
+                for i, l in enumerate(logit):
+                    if np.random.random() > eps:
+                        action.append(l.argmax(dim=-1))
+                    else:
+                        if mask is not None:
+                            action.append(sample_action(prob=mask[i].float()))
+                        else:
+                            action.append(torch.randint(0, l.shape[-1], size=l.shape[:-1]))
+                if len(action) == 1:
+                    action, logit = action[0], logit[0]
+            output['action'] = action
+        
+        if self._cuda:
+            output = to_device(output, 'cpu')
+        output = default_decollate(output)
+        return {i: d for i, d in zip(data_id, output)}
+
     def _init_eval(self) -> None:
         r"""
         Overview:
@@ -301,7 +410,7 @@ class AveragedDQNPolicy(DQNPolicy):
         """
         self._num_of_prime = self._cfg.num_of_prime
         if not hasattr(self, '_prime_model_list'):
-            self._prime_model_list = [copy.deepcopy(self._model) for _ in range(self._num_of_prime)]
+            self._prime_model_list = deque([copy.deepcopy(self._model) for _ in range(self._num_of_prime)])
         self._eval_model_list = self._prime_model_list
 
     def _forward_eval(self, data: Dict[int, Any]) -> Dict[int, Any]:

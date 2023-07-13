@@ -1,0 +1,1 @@
+{"cur_lr": 0.00025000000000000006, "total_loss": 0.004681806406006217, "q_value": 0.018537356331944466, "target_q_value": 0.01823878213763237, "priority": 0.004681806396905586, "episode return mean": 0.0, "episode return std": 0.0, "train iter": 10, "env step": 104, "_timestamp": 1689230008.0252595, "_runtime": 213.65061450004578, "_step": 27456}

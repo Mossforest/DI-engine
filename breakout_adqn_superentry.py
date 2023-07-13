@@ -30,7 +30,7 @@ def make_args():
 
 def make_config(args):
     breakout_averaged_dqn_config = dict(
-        exp_name=f'adqn_prime{args.prime}_seed{args.seed}_newtarget',
+        exp_name=f'adqn_prime{args.prime}_seed{args.seed}',
         seed=args.seed,
         env=dict(
             collector_env_num=8,
@@ -38,7 +38,7 @@ def make_config(args):
             n_evaluator_episode=8,
             env_id='BreakoutNoFrameskip-v4',
             frame_stack=4,
-            max_episode_steps=1e4,
+            max_episode_steps=10000,
         ),
         policy=dict(
             cuda=True,
@@ -54,8 +54,8 @@ def make_config(args):
                 train_iterations=40000000,
                 update_per_collect=10,
                 batch_size=32,
-                learning_rate=0.0001,
-                target_update_freq=500,
+                learning_rate=0.00025, # 0.0001
+                target_update_freq=10000,
                 learner=dict(hook=dict(save_ckpt_after_iter=1000000, ))
             ),
             collect=dict(n_sample=100, ),
@@ -124,7 +124,7 @@ def main(main_config, create_config):
         task.use(data_pusher(cfg, buffer))
         task.use(OffPolicyLearner(cfg, policy.learn_mode, buffer))
         metric_list = ['cur_lr', 'total_loss', 'q_value', 'target_q_value', 'priority']
-        task.use(wandb_online_logger(project_name='breakout_exp', exp_name=cfg.exp_name, metric_list=metric_list))
+        task.use(wandb_online_logger(project_name='breakout_exp_1', exp_name=cfg.exp_name, metric_list=metric_list))
         task.use(online_logger(train_show_freq=10000))
         task.use(CkptSaver(policy, cfg.exp_name, train_freq=10000000))
         task.run()
