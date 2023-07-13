@@ -1,1 +1,0 @@
-{"q_value": -0.017045558243989945, "target_q_value": -0.016980274952948092, "episode return mean": 650.0, "episode return std": 0.0, "train iter": 10, "env step": 104, "_timestamp": 1687937962.8908155, "_runtime": 22.842344522476196, "_step": 104, "_wandb": {"runtime": 21}}

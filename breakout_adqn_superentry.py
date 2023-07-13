@@ -9,7 +9,7 @@ from ding.envs import DingEnvWrapper, BaseEnvManagerV2
 from ding.model import DQN
 from ding.policy import AveragedDQNPolicy
 from ding.data import DequeBuffer
-from dizoo.atari.envs import AtariEnv, TimeLimit
+from dizoo.atari.envs import AtariEnv
 
 from ding.framework import task, ding_init
 from ding.framework.context import OnlineRLContext
@@ -30,7 +30,7 @@ def make_args():
 
 def make_config(args):
     breakout_averaged_dqn_config = dict(
-        exp_name=f'adqn_prime{args.prime}_seed{args.seed}_notarget',
+        exp_name=f'adqn_prime{args.prime}_seed{args.seed}_newtarget',
         seed=args.seed,
         env=dict(
             collector_env_num=8,

@@ -17,7 +17,8 @@ class AtariEnv(BaseEnv):
         self._cfg = cfg
         self._init_flag = False
         self._replay_path = None
-        self._max_episode_steps = cfg.max_episode_steps
+        if hasattr(self._cfg, '_max_episode_steps'):
+            self._max_episode_steps = cfg.max_episode_steps
         self._elapsed_steps = 0
 
     def reset(self) -> np.ndarray:
@@ -64,7 +65,7 @@ class AtariEnv(BaseEnv):
         action = action.item()
         obs, rew, done, info = self._env.step(action)
         self._elapsed_steps += 1
-        if self._elapsed_steps >= self._max_episode_steps:
+        if hasattr(self._cfg, '_max_episode_steps') and self._elapsed_steps >= self._max_episode_steps:
             done = True
             info['TimeLimit.truncated'] = True
         # self._env.render()

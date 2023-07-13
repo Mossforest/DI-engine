@@ -10,6 +10,7 @@ breakout_averaged_dqn_config = dict(
         n_evaluator_episode=8,
         env_id='BreakoutNoFrameskip-v4',
         frame_stack=4,
+        max_episode_steps=1e4,
     ),
     policy=dict(
         cuda=True,
