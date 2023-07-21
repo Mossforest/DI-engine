@@ -1,4 +1,5 @@
 from typing import Union, Dict, Optional
+from ...policy.iql import IQLPolicy
 from easydict import EasyDict
 import numpy as np
 import torch
@@ -559,4 +560,121 @@ class DiscreteQAC(nn.Module):
             x = [m(inputs['obs'])['logit'] for m in self.critic]
         else:
             x = self.critic(inputs['obs'])['logit']
+        return {'q_value': x}
+
+
+@MODEL_REGISTRY.register('iql')
+class IQLNetwork(QAC):
+    r"""
+    Overview:
+        The IQL network.
+    Interfaces:
+        ``__init__``, ``forward``, ``compute_actor``, ``compute_critic``, ``compute_value_critic``
+    """
+    mode = ['compute_actor', 'compute_critic', 'compute_value_critic']
+
+    def __init__(
+        self,
+        obs_shape: Union[int, SequenceType],
+        action_shape: Union[int, SequenceType, EasyDict],
+        action_space: str,
+        twin_critic: bool = True,
+        actor_head_hidden_size: int = 64,
+        actor_head_layer_num: int = 1,
+        critic_head_hidden_size: int = 64,
+        critic_head_layer_num: int = 1,
+        activation: Optional[nn.Module] = nn.ReLU(),
+        norm_type: Optional[str] = None,
+        encoder_hidden_size_list: Optional[SequenceType] = [32, 64, 256],
+        share_encoder: Optional[bool] = False,
+    ) -> None:
+        """
+        Overview:
+            Initailize the QAC Model according to input arguments.
+        Arguments:
+            - obs_shape (:obj:`Union[int, SequenceType]`): Observation's shape, such as 128, (156, ).
+            - action_shape (:obj:`Union[int, SequenceType, EasyDict]`): Action's shape, such as 4, (3, ), \
+                EasyDict({'action_type_shape': 3, 'action_args_shape': 4}).
+            - action_space (:obj:`str`): The type of action space, \
+                including [``regression``, ``reparameterization``, ``hybrid``].
+            - twin_critic (:obj:`bool`): Whether to use twin critic, one of tricks in TD3.
+            - actor_head_hidden_size (:obj:`Optional[int]`): The ``hidden_size`` to pass to actor head.
+            - actor_head_layer_num (:obj:`int`): The num of layers used in the network to compute Q value output \
+                for actor head.
+            - critic_head_hidden_size (:obj:`Optional[int]`): The ``hidden_size`` to pass to critic head.
+            - critic_head_layer_num (:obj:`int`): The num of layers used in the network to compute Q value output \
+                for critic head.
+            - activation (:obj:`Optional[nn.Module]`): The type of activation function to use in ``MLP`` \
+                after each FC layer, if ``None`` then default set to ``nn.ReLU()``.
+            - norm_type (:obj:`Optional[str]`): The type of normalization to after network layer (FC, Conv), \
+                see ``ding.torch_utils.network`` for more details.
+            - share_encoder (:obj:`Optional[bool]`): Whether to share encoder between actor and critic.
+        """
+        super(IQLNetwork, self).__init__(
+            obs_shape,
+            action_shape,
+            action_space,
+            twin_critic,
+            actor_head_hidden_size,
+            actor_head_layer_num,
+            critic_head_hidden_size,
+            critic_head_layer_num,
+            activation,
+            norm_type,
+            encoder_hidden_size_list,
+            share_encoder,
+        )
+        critic_input_size = self.input_size + action_shape
+        self._value_critic = nn.Sequential(
+            nn.Linear(critic_input_size, critic_head_hidden_size), activation,
+            RegressionHead(
+                critic_head_hidden_size,
+                1,
+                critic_head_layer_num,
+                final_tanh=False,
+                activation=activation,
+                norm_type=norm_type
+            )
+        )
+
+    def compute_actor(self, obs: torch.Tensor) -> Dict[str, Union[torch.Tensor, Dict[str, torch.Tensor]]]:
+        if self.encoder is not None:
+            if self.share_encoder:
+                obs = self.encoder(obs)
+            else:
+                obs = self.encoder['actor'](obs)
+        if self.action_space == 'regression':
+            x = self.actor(obs)
+            return {'action': x['pred']}
+        elif self.action_space == 'reparameterization':
+            x = self.actor(obs)
+            return {'logit': [x['mu'], x['sigma']]}
+        elif self.action_space == 'hybrid':
+            logit = self.actor[0](obs)
+            action_args = self.actor[1](obs)
+            return {'logit': logit['logit'], 'action_args': action_args['pred']}
+
+    def compute_value_critic(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        obs, action = inputs['obs'], inputs['action']
+        if self.encoder is not None:
+            if self.share_encoder:
+                obs = self.encoder(obs)
+            else:
+                obs = self.encoder['critic'](obs)
+        assert len(obs.shape) == 2
+        if self.action_space == 'hybrid':
+            action_type_logit = inputs['logit']
+            action_type_logit = torch.softmax(action_type_logit, dim=-1)
+            action_args = action['action_args']
+            if len(action_args.shape) == 1:
+                action_args = action_args.unsqueeze(1)
+            x = torch.cat([obs, action_type_logit, action_args], dim=1)
+        else:
+            if len(action.shape) == 1:  # (B, ) -> (B, 1)
+                action = action.unsqueeze(1)
+            x = torch.cat([obs, action], dim=1)
+        if self.twin_critic:
+            x = [m(x)['pred'] for m in self.critic]
+        else:
+            x = self.critic(x)['pred']
         return {'q_value': x}
