@@ -1,5 +1,4 @@
 from typing import Union, Dict, Optional
-from ...policy.iql import IQLPolicy
 from easydict import EasyDict
 import numpy as np
 import torch
@@ -624,9 +623,45 @@ class IQLNetwork(QAC):
             encoder_hidden_size_list,
             share_encoder,
         )
-        critic_input_size = self.input_size + action_shape
-        self._value_critic = nn.Sequential(
-            nn.Linear(critic_input_size, critic_head_hidden_size), activation,
+        
+        # actor head reupdate to tanh
+        self.actor = nn.Sequential(
+                nn.Linear(self.input_size, actor_head_hidden_size), activation,
+                ReparameterizationHead(
+                    actor_head_hidden_size,
+                    action_shape,
+                    actor_head_layer_num,
+                    bound_type='tanh',
+                    sigma_type='conditioned',   # TODO: can't param max/min_log_sigma?
+                    activation=activation,
+                    norm_type=norm_type
+                )
+            )
+        
+        # Encoder of value_critic
+        if np.isscalar(obs_shape) or len(obs_shape) == 1:
+            pass
+        elif len(obs_shape) == 3 and not self.share_encoder:
+
+            def setup_conv_encoder():
+                kernel_size = [3 for _ in range(len(encoder_hidden_size_list))]
+                stride = [2] + [1 for _ in range(len(encoder_hidden_size_list) - 1)]
+                return ConvEncoder(
+                    obs_shape,
+                    encoder_hidden_size_list,
+                    activation=activation,
+                    norm_type=norm_type,
+                    kernel_size=kernel_size,
+                    stride=stride
+                )
+
+            self.encoder.update({
+                'value_critic': setup_conv_encoder(),
+            })
+        
+        # value_critic
+        self.value_critic = nn.Sequential(
+            nn.Linear(self.input_size, critic_head_hidden_size), activation,
             RegressionHead(
                 critic_head_hidden_size,
                 1,
@@ -643,38 +678,15 @@ class IQLNetwork(QAC):
                 obs = self.encoder(obs)
             else:
                 obs = self.encoder['actor'](obs)
-        if self.action_space == 'regression':
-            x = self.actor(obs)
-            return {'action': x['pred']}
-        elif self.action_space == 'reparameterization':
-            x = self.actor(obs)
-            return {'logit': [x['mu'], x['sigma']]}
-        elif self.action_space == 'hybrid':
-            logit = self.actor[0](obs)
-            action_args = self.actor[1](obs)
-            return {'logit': logit['logit'], 'action_args': action_args['pred']}
+        x = self.actor(obs)
+        return {'logit': [x['mu'], x['sigma']]}
 
-    def compute_value_critic(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        obs, action = inputs['obs'], inputs['action']
+    def compute_value_critic(self, obs: torch.Tensor) -> Dict[str, torch.Tensor]:
         if self.encoder is not None:
             if self.share_encoder:
                 obs = self.encoder(obs)
             else:
-                obs = self.encoder['critic'](obs)
+                obs = self.encoder['value_critic'](obs)
         assert len(obs.shape) == 2
-        if self.action_space == 'hybrid':
-            action_type_logit = inputs['logit']
-            action_type_logit = torch.softmax(action_type_logit, dim=-1)
-            action_args = action['action_args']
-            if len(action_args.shape) == 1:
-                action_args = action_args.unsqueeze(1)
-            x = torch.cat([obs, action_type_logit, action_args], dim=1)
-        else:
-            if len(action.shape) == 1:  # (B, ) -> (B, 1)
-                action = action.unsqueeze(1)
-            x = torch.cat([obs, action], dim=1)
-        if self.twin_critic:
-            x = [m(x)['pred'] for m in self.critic]
-        else:
-            x = self.critic(x)['pred']
-        return {'q_value': x}
+        x = self.value_critic(obs)['pred']
+        return {'v_value': x}

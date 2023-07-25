@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.distributions import Normal, Independent
+from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from ding.torch_utils import Adam, to_device
 from ding.rl_utils import v_1step_td_data, v_1step_td_error, get_train_sample, \
@@ -92,14 +93,6 @@ class IQLPolicy(Policy):
             # The IQL policy set twin critic to True.
             twin_critic=True,
 
-            # (bool type) value_network: Determine whether to use value network as the
-            # original SAC paper (arXiv 1801.01290).
-            # using value_network needs to set learning_rate_value, learning_rate_q,
-            # and learning_rate_policy in `cfg.policy.learn`.
-            # The IQL policy set value network to True.
-            value_network=True,
-            # TODO: cql got this config, but no mode `compute_value_critic` all over the ding
-
             # (str type) action_space: Use reparameterization trick for continous action
             action_space='reparameterization',
 
@@ -124,6 +117,8 @@ class IQLPolicy(Policy):
             # (float type) learning_rate_policy: Learning rate for policy network.
             # Default to 1e-3, when model.value_network is True.
             learning_rate_policy=1e-3,
+            # (int type) 
+            max_steps=int(1e6),
             # (float type) learning_rate_value: Learning rate for value network.
             # `learning_rate_value` should be initialized, when model.value_network is True.
             # Please set to 3e-4, when model.value_network is True.
@@ -173,12 +168,8 @@ class IQLPolicy(Policy):
         self._priority_IS_weight = self._cfg.priority_IS_weight
         self._num_actions = self._cfg.learn.num_actions
 
-        self._min_q_version = 3
-        self._min_q_weight = self._cfg.learn.min_q_weight
-
         # TODO: just for sure, delete it if pass
-        assert self._cfg.model._twin_critic, "IQL is set with twin critic defaultly"
-        assert self._cfg.model._value_network, "IQL need value network"
+        assert self._cfg.model.twin_critic, "IQL is set with twin critic defaultly"
 
         # Weight Init
         init_w = self._cfg.learn.init_w
@@ -205,17 +196,17 @@ class IQLPolicy(Policy):
             self._model.critic.parameters(),        # TODO： two critic, one optim？
             lr=self._cfg.learn.learning_rate_q,
         )
-        # TODO: cosine schedule
         self._optimizer_policy = Adam(
             self._model.actor.parameters(),
             lr=self._cfg.learn.learning_rate_policy,
         )
+        self._scheduler_policy = CosineAnnealingLR(self._optimizer_policy, self._cfg.learn.max_steps, eta_min=0, last_epoch=- 1, verbose=False)
 
         # Algorithm config
         self._gamma = self._cfg.learn.discount_factor
-        self._expectile = self._cfg.expectile
-        self._beta = self._cfg.beta
-        self._tau = self._cfg.tau
+        self._expectile = self._cfg.learn.expectile
+        self._beta = self._cfg.learn.beta
+        self._clip_score = self._cfg.learn.clip_score
 
         # Main and target models
         self._target_model = copy.deepcopy(self._model)
@@ -266,7 +257,8 @@ class IQLPolicy(Policy):
         target_forward = lambda input: self._target_model.forward(input, mode='compute_critic')['q_value']
 
         # 1. compute value loss
-        target_q = min(target_forward(data)).detach()
+        q1, q2 = target_forward(data)
+        target_q = torch.min(q1, q2).detach()
         value = value_forward(obs)
         value_err = value - target_q
         value_sign = (value_err > 0).float()
@@ -275,12 +267,13 @@ class IQLPolicy(Policy):
         loss_dict['value_loss'] = value_loss
 
         # 2. compute policy loss, aka AWR policy extraction update
-        policy_dist = policy_forward(obs)
-        policy_log = policy_dist.log_prob(action) # TODO: add in IQL actor
+        (mu, sigma) = policy_forward(obs)
+        policy_dist = Independent(Normal(mu, sigma), 1)
+        policy_log = policy_dist.log_prob(action)
         exp_adv = torch.exp((target_q - value) / self._beta)
         if self._clip_score:
-            exp_adv = torch.clamp(exp_adv, max=self._clip_score)  # TODO: clip
-        weights = exp_adv[:, 0].detach()  # TODO: ?
+            exp_adv = torch.clamp(exp_adv, max=self._clip_score)
+        weights = exp_adv.detach()  # TODO: ? from torch version
         policy_loss = (-policy_log * weights).mean()
         loss_dict['policy_loss'] = policy_loss
 
@@ -308,6 +301,8 @@ class IQLPolicy(Policy):
         self._optimizer_policy.zero_grad()
         loss_dict['policy_loss'].backward()
         self._optimizer_policy.step()
+        lr = self._scheduler_policy.get_lr()[0]
+        self._scheduler_policy.step()
 
         loss_dict['total_loss'] = sum(loss_dict.values())
 
@@ -318,11 +313,11 @@ class IQLPolicy(Policy):
         self._target_model.update(self._learn_model.state_dict())
         return {
             'cur_lr_q': self._optimizer_q.defaults['lr'],
-            'cur_lr_p': self._optimizer_policy.defaults['lr'],
+            'cur_lr_p': lr,
             'cur_lr_v': self._optimizer_value.defaults['lr'],
             'priority': td_error_per_sample.abs().tolist(),
             'td_error': td_error_per_sample.detach().mean().item(),
-            'q_value': min(q1, q2).detach().mean().item(),
+            'q_value': torch.min(q1, q2).detach().mean().item(),
             'target_q_value': target_q.detach().mean().item(),
             'value': value.detach().mean().item(),
             **loss_dict
@@ -346,23 +341,23 @@ class IQLPolicy(Policy):
 
 
     def _init_collect(self) -> None:
-        # TODO: RaiseError
-        assert False, "Offline policy hasn't collect mode!"
+        # raise Exception("Offline policy hasn't collect mode!")
+        pass
 
     def _forward_collect(self, data: dict) -> dict:
-        # TODO: RaiseError
-        assert False, "Offline policy hasn't collect mode!"
+        # raise Exception("Offline policy hasn't collect mode!")
+        pass
 
     def _process_transition(self, obs: Any, policy_output: dict, timestep: namedtuple) -> dict:
-        # TODO: RaiseError
-        assert False, "Offline policy hasn't collect mode!"
+        # raise Exception("Offline policy hasn't collect mode!")
+        pass
 
     def _get_train_sample(self, data: list) -> Union[None, List[Any]]:
-        # TODO: RaiseError
-        assert False, "Offline policy hasn't collect mode!"
+        # raise Exception("Offline policy hasn't collect mode!")
+        pass
 
     def _init_eval(self) -> None:
-        self._eval_model = model_wrap(self._model, wrapper_name='argmax_sample')
+        self._eval_model = model_wrap(self._model, wrapper_name='base')
         self._eval_model.reset()
 
     def _forward_eval(self, data: dict) -> dict:
@@ -372,7 +367,9 @@ class IQLPolicy(Policy):
             data = to_device(data, self._device)
         self._eval_model.eval()
         with torch.no_grad():
-            output = self._eval_model.forward({'obs': data}, mode='compute_actor')
+            (mu, sigma) = self._eval_model.forward(data, mode='compute_actor')['logit']
+            action = torch.tanh(mu)  # deterministic_eval
+            output = {'action': action}
         if self._cuda:
             output = to_device(output, 'cpu')
         output = default_decollate(output)
