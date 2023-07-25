@@ -2,6 +2,7 @@ from typing import List, Dict, Any, Tuple
 from collections import deque
 import copy
 import torch
+import numpy as np
 
 from ding.torch_utils import Adam, RMSprop, to_device, ContrastiveLoss
 from ding.rl_utils import q_nstep_td_data, q_nstep_td_error, get_nstep_return_data, get_train_sample
@@ -17,7 +18,7 @@ from .common_utils import default_preprocess_learn
 class AveragedDQNPolicy(DQNPolicy):
     """
     Overview:
-        Policy class of Averaged_DQN algorithm.
+        Policy class of AveragedDQN algorithm.
         paper: https://arxiv.org/pdf/1611.01929.pdf
 
     Config:
@@ -39,39 +40,41 @@ class AveragedDQNPolicy(DQNPolicy):
            | ``factor``                   [0.95, 0.999]  | gamma                                 | reward env
         7  ``nstep``             int      1,             | N-step reward discount sum for target
                                           [3, 5]         | q_value estimation
-        8  | ``model.dueling``   bool     True           | dueling head architecture
-        9  | ``model.encoder``   list     [32, 64,       | Sequence of ``hidden_size`` of        | default kernel_size
+        8  ``num_of_prime``      int      5,             | The number of previously Q-values used
+                                                         | in current action-value estimate.
+        9  | ``model.dueling``   bool     True           | dueling head architecture
+        10 | ``model.encoder``   list     [32, 64,       | Sequence of ``hidden_size`` of        | default kernel_size
            | ``_hidden``         (int)    64, 128]       | subsequent conv layers and the        | is [8, 4, 3]
            | ``_size_list``                               | final dense layer.                   | default stride is
                                                                                                  | [4, 2 ,1]
-        10 | ``learn.update``    int      3              | How many updates(iterations) to train | This args can be vary
+        11 | ``learn.update``    int      3              | How many updates(iterations) to train | This args can be vary
            | ``per_collect``                             | after collector's one collection.     | from envs. Bigger val
                                                          | Only valid in serial training         | means more off-policy
-        11 | ``learn.batch_``    int      64             | The number of samples of an iteration
+        12 | ``learn.batch_``    int      64             | The number of samples of an iteration
            | ``size``
-        12 | ``learn.learning``  float    0.001          | Gradient step length of an iteration.
+        13 | ``learn.learning``  float    0.001          | Gradient step length of an iteration.
            | ``_rate``
-        13 | ``learn.target_``   int      100            | Frequence of target network update.   | Hard(assign) update
+        14 | ``learn.target_``   int      100            | Frequence of target network update.   | Hard(assign) update
            | ``update_freq``
-        14 | ``learn.target_``   float    0.005          | Frequence of target network update.   | Soft(assign) update
+        15 | ``learn.target_``   float    0.005          | Frequence of target network update.   | Soft(assign) update
            | ``theta``                                   | Only one of [target_update_freq,
            |                                             | target_theta] should be set
-        15 | ``learn.ignore_``   bool     False          | Whether ignore done for target value  | Enable it for some
+        16 | ``learn.ignore_``   bool     False          | Whether ignore done for target value  | Enable it for some
            | ``done``                                    | calculation.                          | fake termination env
-        16 ``collect.n_sample``  int      [8, 128]       | The number of training samples of a   | It varies from
+        17 ``collect.n_sample``  int      [8, 128]       | The number of training samples of a   | It varies from
                                                          | call of collector.                    | different envs
-        17 ``collect.n_episode`` int      8              | The number of training episodes of a  | only one of [n_sample
+        18 ``collect.n_episode`` int      8              | The number of training episodes of a  | only one of [n_sample
                                                          | call of collector                     | ,n_episode] should
                                                          |                                       | be set
-        18 | ``collect.unroll``  int      1              | unroll length of an iteration         | In RNN, unroll_len>1
+        19 | ``collect.unroll``  int      1              | unroll length of an iteration         | In RNN, unroll_len>1
            | ``_len``
-        19 | ``other.eps.type``  str      exp            | exploration rate decay type           | Support ['exp',
+        20 | ``other.eps.type``  str      exp            | exploration rate decay type           | Support ['exp',
                                                                                                  | 'linear'].
-        20 | ``other.eps.``      float    0.95           | start value of exploration rate       | [0,1]
+        21 | ``other.eps.``      float    0.95           | start value of exploration rate       | [0,1]
            | ``start``
-        21 | ``other.eps.``      float    0.1            | end value of exploration rate         | [0,1]
+        22 | ``other.eps.``      float    0.1            | end value of exploration rate         | [0,1]
            | ``end``
-        22 | ``other.eps.``      int      10000          | decay length of exploration           | greater than 0. set
+        23 | ``other.eps.``      int      10000          | decay length of exploration           | greater than 0. set
            | ``decay``                                                                           | decay=10000 means
                                                                                                  | the exploration rate
                                                                                                  | decay from start
@@ -175,27 +178,15 @@ class AveragedDQNPolicy(DQNPolicy):
         if not hasattr(self, '_prime_model_list'):
             self._prime_model_list = deque([copy.deepcopy(self._model) for _ in range(self._num_of_prime)])
 
-        # TODO: update lists of target model
         # # use model_wrapper for specialized demands of different modes
         self._target_model_list = copy.deepcopy(self._prime_model_list)
-        if 'target_update_freq' in self._cfg.learn: 
-            for idx, target_model in enumerate(self._target_model_list):
-                self._target_model_list[idx] = model_wrap(
-                    target_model,
-                    wrapper_name='target',
-                    update_type='assign',
-                    update_kwargs={'freq': self._cfg.learn.target_update_freq}
-                )
-        elif 'target_theta' in self._cfg.learn:
-            for idx, target_model in enumerate(self._target_model_list):
-                self._target_model_list[idx] = model_wrap(
-                    target_model,
-                    wrapper_name='target',
-                    update_type='momentum',
-                    update_kwargs={'theta': self._cfg.learn.target_theta}
-                )
-        else:
-            raise RuntimeError("DQN needs target network, please either indicate target_update_freq or target_theta")
+        for idx, target_model in enumerate(self._target_model_list):
+            self._target_model_list[idx] = model_wrap(
+                target_model,
+                wrapper_name='target',
+                update_type='assign',
+                update_kwargs={'freq': self._cfg.learn.target_update_freq}
+            )
         self._learn_model = model_wrap(self._model, wrapper_name='argmax_sample')
         self._learn_model.reset()
         for target_model in self._target_model_list:
@@ -277,9 +268,6 @@ class AveragedDQNPolicy(DQNPolicy):
         self._optimizer.step()
         
         # update prime models
-        # for i in reversed(range(1, self._num_of_prime)):
-        #     self._prime_model_list[i].load_state_dict(self._prime_model_list[i - 1].state_dict(), strict=True)
-        # self._prime_model_list[0].load_state_dict(self._learn_model.state_dict(), strict=True)
         tmp_model = self._prime_model_list.pop()
         tmp_model.load_state_dict(self._learn_model.state_dict(), strict=True)
         self._prime_model_list.appendleft(tmp_model)
@@ -309,8 +297,6 @@ class AveragedDQNPolicy(DQNPolicy):
         self._unroll_len = self._cfg.collect.unroll_len
         self._gamma = self._cfg.discount_factor  # necessary for parallel
         self._nstep = self._cfg.nstep  # necessary for parallel
-        # self._collect_model = model_wrap(self._model, wrapper_name='eps_greedy_sample')
-        # self._collect_model.reset()
         self._num_of_prime = self._cfg.num_of_prime
         if not hasattr(self, '_prime_model_list'):
             self._prime_model_list = deque([copy.deepcopy(self._model) for _ in range(self._num_of_prime)])
@@ -340,7 +326,6 @@ class AveragedDQNPolicy(DQNPolicy):
             collect_model.eval()
         # eps_greedy_sample wrapper's forward
         with torch.no_grad():
-            import numpy as np
             def sample_action(logit=None, prob=None):
                 if prob is None:
                     prob = torch.softmax(logit, dim=-1)
@@ -463,20 +448,20 @@ class AveragedDQNPolicy(DQNPolicy):
 
 
     def _state_dict_learn(self) -> Dict[str, Any]:
-            """
-            Overview:
-                Return the state_dict of learn mode, usually including model and optimizer.
-            Returns:
-                - state_dict (:obj:`Dict[str, Any]`): the dict of current policy learn state, for saving and restoring.
-            """
-            prime_list = [learn_model.state_dict() for learn_model in self._prime_model_list]
-            target_list = [learn_model.state_dict() for learn_model in self._target_model_list]
-            return {
-                'model': self._learn_model.state_dict(),
-                'prime_list': prime_list,
-                'target_list': target_list,
-                'optimizer': self._optimizer.state_dict(),
-            }
+        """
+        Overview:
+            Return the state_dict of learn mode, usually including model and optimizer.
+        Returns:
+            - state_dict (:obj:`Dict[str, Any]`): the dict of current policy learn state, for saving and restoring.
+        """
+        prime_list = [learn_model.state_dict() for learn_model in self._prime_model_list]
+        target_list = [learn_model.state_dict() for learn_model in self._target_model_list]
+        return {
+            'model': self._learn_model.state_dict(),
+            'prime_list': prime_list,
+            'target_list': target_list,
+            'optimizer': self._optimizer.state_dict(),
+        }
 
     def _load_state_dict_learn(self, state_dict: Dict[str, Any]) -> None:
         """

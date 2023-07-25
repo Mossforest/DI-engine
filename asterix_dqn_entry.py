@@ -57,8 +57,8 @@ def main():
         # task.use(nstep_reward_enhancer(cfg))
         task.use(data_pusher(cfg, buffer))
         task.use(OffPolicyLearner(cfg, policy.learn_mode, buffer))
-        metric_list = ['cur_lr', 'loss', 'q_value', 'target_q_value', 'priority']
-        task.use(wandb_online_logger(project_name='asterix_exp', exp_name=cfg.exp_name, metric_list=metric_list))
+        metric_list = ['cur_lr', 'total_loss', 'q_value', 'target_q_value', 'priority']
+        task.use(wandb_online_logger(project_name='asterix_exp_1', exp_name=cfg.exp_name, metric_list=metric_list))
         task.use(online_logger(train_show_freq=10000))
         task.use(CkptSaver(policy, cfg.exp_name, train_freq=10000000))
         task.run()

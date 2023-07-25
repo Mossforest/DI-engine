@@ -30,7 +30,7 @@ def make_args():
 
 def make_config(args):
     breakout_averaged_dqn_config = dict(
-        exp_name=f'adqn_prime{args.prime}_fix_seed{args.seed}',
+        exp_name=f'adqn_prime1_seed{args.seed}',
         seed=args.seed,
         env=dict(
             collector_env_num=8,
@@ -55,7 +55,7 @@ def make_config(args):
                 train_iterations=40000000,
                 update_per_collect=10,
                 batch_size=32,
-                learning_rate=0.0001*args.prime,
+                learning_rate=0.0001,
                 target_update_freq=500,
                 learner=dict(hook=dict(save_ckpt_after_iter=1000000, ))
             ),

@@ -237,8 +237,9 @@ class DQNPolicy(Policy):
         # Target q value
         with torch.no_grad():
             target_q_value = self._target_model.forward(data['next_obs'])['logit']
-            # Max q value action (main model), i.e. Double DQN
-            target_q_action = self._learn_model.forward(data['next_obs'])['action']
+            # Max q value action (main model), i.e. Double DQN turned down
+            # target_q_action = self._learn_model.forward(data['next_obs'])['action']
+            target_q_action = target_q_value.argmax(dim=-1)
 
         data_n = q_nstep_td_data(
             q_value, target_q_value, data['action'], target_q_action, data['reward'], data['done'], data['weight']

@@ -30,7 +30,7 @@ def make_args():
 
 def make_config(args):
     breakout_averaged_dqn_config = dict(
-        exp_name=f'adqn_prime{args.prime}_seed{args.seed}',
+        exp_name=f'adqn_prime{args.prime}_fix_seed{args.seed}',
         seed=args.seed,
         env=dict(
             collector_env_num=8,
@@ -48,6 +48,7 @@ def make_config(args):
                 obs_shape=[4, 84, 84],
                 action_shape=9,
                 encoder_hidden_size_list=[128, 128, 512],
+                dueling=False,
             ),
             num_of_prime=args.prime,
             nstep=1,
@@ -56,8 +57,8 @@ def make_config(args):
                 train_iterations=40000000,
                 update_per_collect=10,
                 batch_size=32,
-                learning_rate=0.00025, # 0.0001
-                target_update_freq=10000, # 500
+                learning_rate=0.0001*args.prime,
+                target_update_freq=500,
                 learner=dict(hook=dict(save_ckpt_after_iter=1000000, ))
             ),
             collect=dict(n_sample=100, ),
@@ -119,7 +120,6 @@ def main(main_config, create_config):
         model = DQN(**cfg.policy.model)
         buffer = DequeBuffer(size=cfg.policy.other.replay_buffer.replay_buffer_size)
         policy = AveragedDQNPolicy(cfg.policy, model=model)
-    
         task.use(interaction_evaluator(cfg, policy.eval_mode, evaluator_env))
         task.use(eps_greedy_handler(cfg))
         task.use(StepCollector(cfg, policy.collect_mode, collector_env))
@@ -129,7 +129,7 @@ def main(main_config, create_config):
         metric_list = ['cur_lr', 'total_loss', 'q_value', 'target_q_value', 'priority']
         task.use(wandb_online_logger(project_name='asterix_exp_1', exp_name=cfg.exp_name, metric_list=metric_list))
         task.use(online_logger(train_show_freq=10000))
-        task.use(CkptSaver(policy, cfg.exp_name, train_freq=10000000))
+        task.use(CkptSaver(policy, cfg.exp_name, train_freq=1000000))
         # termination_checker
         task.run()
 

@@ -23,39 +23,41 @@ from argparse import ArgumentParser
 def make_args():
     parser = ArgumentParser()
     parser.add_argument('--seed', default=0, type=int)
-    parser.add_argument('--prime', default=5, type=int)
+    parser.add_argument('--prime', default=1, type=int)
     args = parser.parse_args()
     return args
 
 
 def make_config(args):
     breakout_averaged_dqn_config = dict(
-        exp_name=f'adqn_prime{args.prime}_fix_seed{args.seed}',
+        exp_name=f'adqn_prime1_seed{args.seed}',
         seed=args.seed,
         env=dict(
             collector_env_num=8,
             evaluator_env_num=8,
             n_evaluator_episode=8,
-            env_id='BreakoutNoFrameskip-v4',
+            stop_value=20000,
+            env_id='AsterixNoFrameskip-v0',
+            #'ALE/SpaceInvaders-v5' is available. But special setting is needed after gym make.
             frame_stack=4,
-            max_episode_steps=10000,
         ),
         policy=dict(
             cuda=True,
             priority=False,
             model=dict(
                 obs_shape=[4, 84, 84],
-                action_shape=4,
+                action_shape=9,
                 encoder_hidden_size_list=[128, 128, 512],
                 dueling=False,
             ),
             num_of_prime=args.prime,
+            nstep=1,
             discount_factor=0.99,
             learn=dict(
                 train_iterations=40000000,
                 update_per_collect=10,
                 batch_size=32,
-                learning_rate=0.0001*args.prime,
+                learning_rate=0.0001,
                 target_update_freq=500,
                 learner=dict(hook=dict(save_ckpt_after_iter=1000000, ))
             ),
@@ -125,10 +127,12 @@ def main(main_config, create_config):
         task.use(data_pusher(cfg, buffer))
         task.use(OffPolicyLearner(cfg, policy.learn_mode, buffer))
         metric_list = ['cur_lr', 'total_loss', 'q_value', 'target_q_value', 'priority']
-        task.use(wandb_online_logger(project_name='breakout_exp_1', exp_name=cfg.exp_name, metric_list=metric_list))
+        task.use(wandb_online_logger(project_name='asterix_exp_1', exp_name=cfg.exp_name, metric_list=metric_list))
         task.use(online_logger(train_show_freq=10000))
-        task.use(CkptSaver(policy, cfg.exp_name, train_freq=10000000))
+        task.use(CkptSaver(policy, cfg.exp_name, train_freq=1000000))
+        # termination_checker
         task.run()
+
 
 if __name__ == '__main__':
     args = make_args()

@@ -2,8 +2,8 @@ from easydict import EasyDict
 import pdb
 
 breakout_averaged_dqn_config = dict(
-    exp_name='dqn_seed456',
-    seed=456,
+    exp_name='dqn_pure_seed123',
+    seed=123,
     env=dict(
         collector_env_num=8,
         evaluator_env_num=8,
@@ -19,11 +19,12 @@ breakout_averaged_dqn_config = dict(
             obs_shape=[4, 84, 84],
             action_shape=4,
             encoder_hidden_size_list=[128, 128, 512],
+            dueling=False,
         ),
         nstep=1,
         discount_factor=0.99,
         learn=dict(
-            train_iterations=120000000,
+            train_iterations=40000000,
             update_per_collect=10,
             batch_size=32,
             learning_rate=0.0001,
