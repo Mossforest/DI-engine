@@ -560,3 +560,133 @@ class DiscreteQAC(nn.Module):
         else:
             x = self.critic(inputs['obs'])['logit']
         return {'q_value': x}
+
+
+@MODEL_REGISTRY.register('iql')
+class IQLNetwork(QAC):
+    r"""
+    Overview:
+        The IQL network.
+    Interfaces:
+        ``__init__``, ``forward``, ``compute_actor``, ``compute_critic``, ``compute_value_critic``
+    """
+    mode = ['compute_actor', 'compute_critic', 'compute_value_critic']
+
+    def __init__(
+        self,
+        obs_shape: Union[int, SequenceType],
+        action_shape: Union[int, SequenceType, EasyDict],
+        action_space: str,
+        twin_critic: bool = True,
+        actor_head_hidden_size: int = 64,
+        actor_head_layer_num: int = 1,
+        critic_head_hidden_size: int = 64,
+        critic_head_layer_num: int = 1,
+        activation: Optional[nn.Module] = nn.ReLU(),
+        norm_type: Optional[str] = None,
+        encoder_hidden_size_list: Optional[SequenceType] = [32, 64, 256],
+        share_encoder: Optional[bool] = False,
+    ) -> None:
+        """
+        Overview:
+            Initailize the QAC Model according to input arguments.
+        Arguments:
+            - obs_shape (:obj:`Union[int, SequenceType]`): Observation's shape, such as 128, (156, ).
+            - action_shape (:obj:`Union[int, SequenceType, EasyDict]`): Action's shape, such as 4, (3, ), \
+                EasyDict({'action_type_shape': 3, 'action_args_shape': 4}).
+            - action_space (:obj:`str`): The type of action space, \
+                including [``regression``, ``reparameterization``, ``hybrid``].
+            - twin_critic (:obj:`bool`): Whether to use twin critic, one of tricks in TD3.
+            - actor_head_hidden_size (:obj:`Optional[int]`): The ``hidden_size`` to pass to actor head.
+            - actor_head_layer_num (:obj:`int`): The num of layers used in the network to compute Q value output \
+                for actor head.
+            - critic_head_hidden_size (:obj:`Optional[int]`): The ``hidden_size`` to pass to critic head.
+            - critic_head_layer_num (:obj:`int`): The num of layers used in the network to compute Q value output \
+                for critic head.
+            - activation (:obj:`Optional[nn.Module]`): The type of activation function to use in ``MLP`` \
+                after each FC layer, if ``None`` then default set to ``nn.ReLU()``.
+            - norm_type (:obj:`Optional[str]`): The type of normalization to after network layer (FC, Conv), \
+                see ``ding.torch_utils.network`` for more details.
+            - share_encoder (:obj:`Optional[bool]`): Whether to share encoder between actor and critic.
+        """
+        super(IQLNetwork, self).__init__(
+            obs_shape,
+            action_shape,
+            action_space,
+            twin_critic,
+            actor_head_hidden_size,
+            actor_head_layer_num,
+            critic_head_hidden_size,
+            critic_head_layer_num,
+            activation,
+            norm_type,
+            encoder_hidden_size_list,
+            share_encoder,
+        )
+        
+        # actor head reupdate to tanh
+        self.actor = nn.Sequential(
+                nn.Linear(self.input_size, actor_head_hidden_size), activation,
+                ReparameterizationHead(
+                    actor_head_hidden_size,
+                    action_shape,
+                    actor_head_layer_num,
+                    bound_type='tanh',
+                    sigma_type='conditioned',   # TODO: can't param max/min_log_sigma?
+                    activation=activation,
+                    norm_type=norm_type
+                )
+            )
+        
+        # Encoder of value_critic
+        if np.isscalar(obs_shape) or len(obs_shape) == 1:
+            pass
+        elif len(obs_shape) == 3 and not self.share_encoder:
+
+            def setup_conv_encoder():
+                kernel_size = [3 for _ in range(len(encoder_hidden_size_list))]
+                stride = [2] + [1 for _ in range(len(encoder_hidden_size_list) - 1)]
+                return ConvEncoder(
+                    obs_shape,
+                    encoder_hidden_size_list,
+                    activation=activation,
+                    norm_type=norm_type,
+                    kernel_size=kernel_size,
+                    stride=stride
+                )
+
+            self.encoder.update({
+                'value_critic': setup_conv_encoder(),
+            })
+        
+        # value_critic
+        self.value_critic = nn.Sequential(
+            nn.Linear(self.input_size, critic_head_hidden_size), activation,
+            RegressionHead(
+                critic_head_hidden_size,
+                1,
+                critic_head_layer_num,
+                final_tanh=False,
+                activation=activation,
+                norm_type=norm_type
+            )
+        )
+
+    def compute_actor(self, obs: torch.Tensor) -> Dict[str, Union[torch.Tensor, Dict[str, torch.Tensor]]]:
+        if self.encoder is not None:
+            if self.share_encoder:
+                obs = self.encoder(obs)
+            else:
+                obs = self.encoder['actor'](obs)
+        x = self.actor(obs)
+        return {'logit': [x['mu'], x['sigma']]}
+
+    def compute_value_critic(self, obs: torch.Tensor) -> Dict[str, torch.Tensor]:
+        if self.encoder is not None:
+            if self.share_encoder:
+                obs = self.encoder(obs)
+            else:
+                obs = self.encoder['value_critic'](obs)
+        assert len(obs.shape) == 2
+        x = self.value_critic(obs)['pred']
+        return {'v_value': x}
