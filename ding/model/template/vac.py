@@ -3,9 +3,63 @@ from easydict import EasyDict
 import torch
 import torch.nn as nn
 from copy import deepcopy
+from ding.torch_utils import get_activation
 from ding.utils import SequenceType, squeeze, MODEL_REGISTRY
 from ..common import ReparameterizationHead, RegressionHead, DiscreteHead, MultiHead, \
     FCEncoder, ConvEncoder, IMPALAConvEncoder
+
+
+@MODEL_REGISTRY.register('base_vac')
+class BaseVAC(nn.Module):
+    r"""
+    Overview:
+        The VAC model.
+    Interfaces:
+        ``__init__``, ``forward``, ``compute_actor``, ``compute_critic``
+    """
+    mode = ['compute_actor', 'compute_critic', 'compute_actor_critic']
+
+    def __init__(
+            self,
+            actor: nn.Module,
+            critic: nn.Module,
+            action_space: str,
+    ) -> None:
+        super(BaseVAC, self).__init__()
+        self.actor = actor
+        self.critic = critic
+        self.action_space = action_space
+
+    def forward(self, inputs: Union[torch.Tensor, Dict], mode: str):
+        assert mode in self.mode, "not support forward mode: {}/{}".format(mode, self.mode)
+        return getattr(self, mode)(inputs)
+
+    def compute_actor(self, x: torch.Tensor):
+        if self.action_space == 'discrete':
+            raise NotImplementedError
+        elif self.action_space == 'continuous':
+            raise NotImplementedError
+        elif self.action_space == 'general':
+            action, log_prob = self.actor(x)
+            return {'action': action, 'log_prob': log_prob}
+        else:
+            raise NotImplementedError
+
+    def compute_critic(self, x: torch.Tensor):
+        value = self.critic(x)
+        return {'value': value}
+
+    def compute_actor_critic(self, x: torch.Tensor):
+        if self.action_space == 'discrete':
+            raise NotImplementedError
+        elif self.action_space == 'continuous':
+            raise NotImplementedError
+        elif self.action_space == 'general':
+            action, log_prob = self.actor(x)
+            value = self.critic(x)
+            return {'action': action, 'log_prob': log_prob, 'value': value}
+        else:
+            raise NotImplementedError
 
 
 @MODEL_REGISTRY.register('vac')
@@ -29,7 +83,9 @@ class VAC(nn.Module):
         actor_head_layer_num: int = 1,
         critic_head_hidden_size: int = 64,
         critic_head_layer_num: int = 1,
-        activation: Optional[nn.Module] = nn.ReLU(),
+        activation: Optional[Union[str, nn.Module]] = nn.ReLU(),
+        policy_activation: Optional[Union[str, nn.Module]] = None,
+        value_activation: Optional[Union[str, nn.Module]] = None,
         norm_type: Optional[str] = None,
         sigma_type: Optional[str] = 'independent',
         fixed_sigma_value: Optional[int] = 0.3,
@@ -52,9 +108,15 @@ class VAC(nn.Module):
             - critic_head_hidden_size (:obj:`Optional[int]`): The ``hidden_size`` to pass to critic-nn's ``Head``.
             - critic_head_layer_num (:obj:`int`):
                 The num of layers used in the network to compute Q value output for critic's nn.
-            - activation (:obj:`Optional[nn.Module]`):
+            - activation (:obj:`Optional[Union[str, nn.Module]]`):
                 The type of activation function to use in ``MLP`` the after ``layer_fn``,
                 if ``None`` then default set to ``nn.ReLU()``
+            - policy_activation (:obj:`Optional[Union[str, nn.Module]]`):
+                The type of activation function to use in ``MLP`` the after ``layer_fn`` in actor's nn,
+                if ``None`` then default set to ``activation``
+            - value_activation (:obj:`Optional[Union[str, nn.Module]]`):
+                The type of activation function to use in ``MLP`` the after ``layer_fn`` in critic's nn,
+                if ``None`` then default set to ``activation``
             - norm_type (:obj:`Optional[str]`):
                 The type of normalization to use, see ``ding.torch_utils.fc_block`` for more details`
         """
@@ -64,9 +126,19 @@ class VAC(nn.Module):
         self.obs_shape, self.action_shape = obs_shape, action_shape
         self.impala_cnn_encoder = impala_cnn_encoder
         self.share_encoder = share_encoder
+        if isinstance(activation, str):
+            activation = get_activation(activation)
+        if policy_activation is not None and isinstance(policy_activation, str):
+            policy_activation = get_activation(policy_activation)
+        else:
+            policy_activation = activation
+        if value_activation is not None and isinstance(value_activation, str):
+            value_activation = get_activation(value_activation)
+        else:
+            value_activation = activation
 
         # Encoder Type
-        def new_encoder(outsize):
+        def new_encoder(outsize, activation):
             if impala_cnn_encoder:
                 return IMPALAConvEncoder(obs_shape=obs_shape, channels=encoder_hidden_size_list, outsize=outsize)
             else:
@@ -99,7 +171,7 @@ class VAC(nn.Module):
                 else:
                     raise ValueError("illegal encoder instance.")
             else:
-                self.encoder = new_encoder(actor_head_hidden_size)
+                self.encoder = new_encoder(actor_head_hidden_size, activation)
         else:
             if encoder:
                 if isinstance(encoder, torch.nn.Module):
@@ -108,12 +180,12 @@ class VAC(nn.Module):
                 else:
                     raise ValueError("illegal encoder instance.")
             else:
-                self.actor_encoder = new_encoder(actor_head_hidden_size)
-                self.critic_encoder = new_encoder(critic_head_hidden_size)
+                self.actor_encoder = new_encoder(actor_head_hidden_size, policy_activation)
+                self.critic_encoder = new_encoder(critic_head_hidden_size, value_activation)
 
         # Head Type
         self.critic_head = RegressionHead(
-            critic_head_hidden_size, 1, critic_head_layer_num, activation=activation, norm_type=norm_type
+            critic_head_hidden_size, 1, critic_head_layer_num, activation=value_activation, norm_type=norm_type
         )
         self.action_space = action_space
         assert self.action_space in ['discrete', 'continuous', 'hybrid'], self.action_space
@@ -124,7 +196,7 @@ class VAC(nn.Module):
                 action_shape,
                 actor_head_layer_num,
                 sigma_type=sigma_type,
-                activation=activation,
+                activation=policy_activation,
                 norm_type=norm_type,
                 bound_type=bound_type
             )
@@ -138,7 +210,7 @@ class VAC(nn.Module):
                     actor_head_hidden_size,
                     action_shape,
                     layer_num=actor_head_layer_num,
-                    activation=activation,
+                    activation=policy_activation,
                     norm_type=norm_type
                 )
             else:
@@ -146,7 +218,7 @@ class VAC(nn.Module):
                     actor_head_hidden_size,
                     action_shape,
                     actor_head_layer_num,
-                    activation=activation,
+                    activation=policy_activation,
                     norm_type=norm_type
                 )
         elif self.action_space == 'hybrid':  # HPPO
@@ -160,7 +232,7 @@ class VAC(nn.Module):
                 actor_head_layer_num,
                 sigma_type=sigma_type,
                 fixed_sigma_value=fixed_sigma_value,
-                activation=activation,
+                activation=policy_activation,
                 norm_type=norm_type,
                 bound_type=bound_type,
             )
@@ -168,7 +240,7 @@ class VAC(nn.Module):
                 actor_head_hidden_size,
                 action_shape.action_type_shape,
                 actor_head_layer_num,
-                activation=activation,
+                activation=policy_activation,
                 norm_type=norm_type,
             )
             self.actor_head = nn.ModuleList([actor_action_type, actor_action_args])
