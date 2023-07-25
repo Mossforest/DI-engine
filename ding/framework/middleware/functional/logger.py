@@ -440,7 +440,7 @@ def wandb_offline_logger(
                 video_logger=False,
                 action_logger=False,
                 return_logger=False,
-                vis_dataset=True,
+                vis_dataset=False,
             )
         )
     else:
@@ -559,7 +559,7 @@ def wandb_offline_logger(
                     "episode return mean": ctx.eval_value,
                     "episode return std": ctx.eval_value_std,
                     "train iter": ctx.train_iter,
-                    "train_epoch": ctx.train_epoch,
+                    "env step": ctx.train_iter
                 }
             )
 
@@ -627,7 +627,7 @@ def wandb_offline_logger(
                 info_for_logging.update({"return distribution": wandb.Video(return_path, format="gif")})
 
         if bool(info_for_logging):
-            wandb.log(data=info_for_logging, step=ctx.env_step)
+            wandb.log(data=info_for_logging, step=ctx.train_iter)
         plt.clf()
 
     return _plot
