@@ -634,7 +634,9 @@ class IQLNetwork(QAC):
                     bound_type='tanh',
                     sigma_type='conditioned',   # TODO: can't param max/min_log_sigma?
                     activation=activation,
-                    norm_type=norm_type
+                    norm_type=norm_type,
+                    clip_value_min=-10,
+                    clip_value_max=5,
                 )
             )
         

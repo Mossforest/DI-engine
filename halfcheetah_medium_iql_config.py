@@ -29,7 +29,7 @@ main_config = dict(
             learning_rate_q=3e-4,
             learning_rate_policy=3e-4,
             learning_rate_value=3e-4,
-            expectile=0.9,  # The actual tau for expectiles.
+            expectile=0.7,  # The actual tau for expectiles.
             beta=3.0,
             clip_score=100,
         ),

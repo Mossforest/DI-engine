@@ -1098,7 +1098,9 @@ class ReparameterizationHead(nn.Module):
             activation: Optional[nn.Module] = nn.ReLU(),
             norm_type: Optional[str] = None,
             bound_type: Optional[str] = None,
-            hidden_size: int = None
+            hidden_size: int = None,
+            clip_value_min: float = -20,
+            clip_value_max: float = 2
     ) -> None:
         """
         Overview:
@@ -1137,6 +1139,8 @@ class ReparameterizationHead(nn.Module):
             self.log_sigma_param = nn.Parameter(torch.zeros(1, output_size))
         elif self.sigma_type == 'conditioned':
             self.log_sigma_layer = nn.Linear(hidden_size, output_size)
+            self.clip_value_min = clip_value_min
+            self.clip_value_max = clip_value_max
 
     def forward(self, x: torch.Tensor) -> Dict:
         """
@@ -1172,7 +1176,7 @@ class ReparameterizationHead(nn.Module):
             sigma = torch.exp(log_sigma)
         elif self.sigma_type == 'conditioned':
             log_sigma = self.log_sigma_layer(x)
-            sigma = torch.exp(torch.clamp(log_sigma, -20, 2))
+            sigma = torch.exp(torch.clamp(log_sigma, self.clip_value_min, self.clip_value_max))
         return {'mu': mu, 'sigma': sigma}
 
 
