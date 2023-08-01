@@ -17,14 +17,17 @@ from argparse import ArgumentParser
 def make_args():
     parser = ArgumentParser()
     parser.add_argument('--seed', default=0, type=int)
-    parser.add_argument('--tau', default=0.9, type=float)
+    parser.add_argument('--tau', default=0.7, type=float)
     parser.add_argument('--config', '-c', type=str, default='halfcheetah_medium_iql_config.py')
+    parser.add_argument('--name', '-n', type=str, default=None)
     args = parser.parse_args()
     return args
 
 
 def main(main_config, create_config, args):
-    main_config.exp_name = main_config.exp_name.replace('0', str(args.seed))
+    # main_config.exp_name = main_config.exp_name.replace('0', str(args.seed))
+    if args.name:
+        main_config.exp_name = args.name
     main_config.seed = args.seed
     main_config.policy.learn.expectile = args.tau
     
@@ -46,7 +49,7 @@ def main(main_config, create_config, args):
         task.use(offline_data_fetcher(cfg, dataset))
         task.use(trainer(cfg, policy.learn_mode))
         metric_list = ['policy_loss', 'q1_loss', 'q2_loss', 'value_loss', 'cur_lr_q', 'cur_lr_p', 'cur_lr_v', 'target_q_value',
-            'value', 'q_value', 'td_error', 'priority']
+            'value', 'q_value', 'td_error', 'priority', 'action_mu', 'action_sigma']
         task.use(wandb_offline_logger(project_name='iql', run_name=cfg.exp_name, metric_list=metric_list))
         task.use(CkptSaver(policy, cfg.exp_name, train_freq=100))
         task.use(offline_logger())

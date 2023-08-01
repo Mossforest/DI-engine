@@ -173,8 +173,8 @@ class IQLPolicy(Policy):
         # actor policy
         self._model.actor[-1].mu.weight.data.uniform_(-init_w, init_w)
         self._model.actor[-1].mu.bias.data.uniform_(-init_w, init_w)
-        self._model.actor[-1].log_sigma_layer.weight.data.uniform_(-init_w, init_w)
-        self._model.actor[-1].log_sigma_layer.bias.data.uniform_(-init_w, init_w)
+        # self._model.actor[-1].log_sigma_layer.weight.data.uniform_(-init_w, init_w)
+        # self._model.actor[-1].log_sigma_layer.bias.data.uniform_(-init_w, init_w)
         # critic
         self._model.critic[0][-1].last.weight.data.uniform_(-init_w, init_w)
         self._model.critic[0][-1].last.bias.data.uniform_(-init_w, init_w)
@@ -194,7 +194,7 @@ class IQLPolicy(Policy):
             lr=self._cfg.learn.learning_rate_q,
         )
         self._optimizer_q2 = Adam(
-            self._model.critic[2].parameters(),
+            self._model.critic[1].parameters(),
             lr=self._cfg.learn.learning_rate_q,
         )
         self._optimizer_policy = Adam(
@@ -323,6 +323,8 @@ class IQLPolicy(Policy):
             'q_value': torch.min(q1, q2).detach().mean().item(),
             'target_q_value': target_q.detach().mean().item(),
             'value': value.detach().mean().item(),
+            'action_mu': mu.detach().mean().item(),
+            'action_sigma': sigma.detach().mean().item(),
             **loss_dict
         }
         

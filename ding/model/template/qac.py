@@ -632,7 +632,7 @@ class IQLNetwork(QAC):
                     action_shape,
                     actor_head_layer_num,
                     bound_type='tanh',
-                    sigma_type='conditioned',   # TODO: can't param max/min_log_sigma?
+                    sigma_type='independent',
                     activation=activation,
                     norm_type=norm_type,
                     clip_value_min=-10,

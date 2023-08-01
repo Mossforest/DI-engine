@@ -3,7 +3,7 @@
 from easydict import EasyDict
 
 main_config = dict(
-    exp_name="halfcheetah_medium-expert_iql_seed0-ind07-nonstop",
+    exp_name="halfcheetah_medium-expert_iql_seed0-ind05",
     env=dict(
         env_id='halfcheetah-medium-expert-v2',
         collector_env_num=1,

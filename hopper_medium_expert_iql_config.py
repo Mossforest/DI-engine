@@ -3,14 +3,13 @@
 from easydict import EasyDict
 
 main_config = dict(
-    exp_name="hopper_medium-expert_iql_seed0",
+    exp_name="hopper_medium-expert_iql_seed0-ind07",
     env=dict(
         env_id='hopper-medium-expert-v0',
         collector_env_num=1,
         evaluator_env_num=8,
         use_act_scale=True,
         n_evaluator_episode=8,
-        stop_value=6000,
     ),
     policy=dict(
         cuda=True,

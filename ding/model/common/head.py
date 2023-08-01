@@ -1137,6 +1137,8 @@ class ReparameterizationHead(nn.Module):
             self.sigma = torch.full((1, output_size), fixed_sigma_value)
         elif self.sigma_type == 'independent':  # independent parameter
             self.log_sigma_param = nn.Parameter(torch.zeros(1, output_size))
+            self.clip_value_min = clip_value_min
+            self.clip_value_max = clip_value_max
         elif self.sigma_type == 'conditioned':
             self.log_sigma_layer = nn.Linear(hidden_size, output_size)
             self.clip_value_min = clip_value_min
@@ -1173,7 +1175,7 @@ class ReparameterizationHead(nn.Module):
             sigma = self.sigma.to(mu.device) + torch.zeros_like(mu)  # addition aims to broadcast shape
         elif self.sigma_type == 'independent':
             log_sigma = self.log_sigma_param + torch.zeros_like(mu)  # addition aims to broadcast shape
-            sigma = torch.exp(log_sigma)
+            sigma = torch.exp(torch.clamp(log_sigma, self.clip_value_min, self.clip_value_max))
         elif self.sigma_type == 'conditioned':
             log_sigma = self.log_sigma_layer(x)
             sigma = torch.exp(torch.clamp(log_sigma, self.clip_value_min, self.clip_value_max))
