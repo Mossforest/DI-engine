@@ -189,6 +189,8 @@ class AveragedDQNPolicy(DQNPolicy):
             )
         self._learn_model = model_wrap(self._model, wrapper_name='argmax_sample')
         self._learn_model.reset()
+        for prime_model in self._prime_model_list:
+            prime_model.reset()
         for target_model in self._target_model_list:
             target_model.reset()
 

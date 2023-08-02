@@ -65,7 +65,7 @@ class AtariEnv(BaseEnv):
         obs, rew, done, info = self._env.step(action)
         self._elapsed_steps += 1
         if self._elapsed_steps >= self._max_episode_steps:
-            print('++++++++++++++++++++++++++++++++++++')
+            # print('++++++++++++++++++++++++++++++++++++')
             done = True
             info['TimeLimit.truncated'] = True
         # self._env.render()

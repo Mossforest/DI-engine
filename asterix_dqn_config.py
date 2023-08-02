@@ -1,7 +1,7 @@
 from easydict import EasyDict
 
 breakout_averaged_dqn_config = dict(
-    exp_name='dqn_pure_seed123',
+    exp_name='dqn_double_seed123',
     seed=123,
     env=dict(
         collector_env_num=8,
@@ -18,7 +18,6 @@ breakout_averaged_dqn_config = dict(
     policy=dict(
         cuda=True,
         priority=False,
-        load_path="./asterix_dqn_seed123/ckpt/ckpt_best.pth.tar",
         model=dict(
             obs_shape=[4, 84, 84],
             action_shape=9,
