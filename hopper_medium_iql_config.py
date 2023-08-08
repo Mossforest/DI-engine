@@ -3,9 +3,9 @@
 from easydict import EasyDict
 
 main_config = dict(
-    exp_name="halfcheetah_medium_iql_seed0-ind07",
+    exp_name="hopper_medium_iql_seed0-ind07-v2",
     env=dict(
-        env_id='halfcheetah-medium-v2',
+        env_id='hopper-medium-v2',
         collector_env_num=1,
         evaluator_env_num=8,
         use_act_scale=True,
@@ -14,8 +14,8 @@ main_config = dict(
     policy=dict(
         cuda=True,
         model=dict(
-            obs_shape=17,
-            action_shape=6,
+            obs_shape=11,
+            action_shape=3,
             actor_head_hidden_size=256,
             actor_head_layer_num=2,
             critic_head_hidden_size=256,

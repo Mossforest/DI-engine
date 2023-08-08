@@ -118,7 +118,7 @@ class IQLPolicy(Policy):
             # Default to 1e-3, when model.value_network is True.
             learning_rate_policy=1e-3,
             # (int type) 
-            max_steps=int(1e6),
+            max_steps=int(2.5e6),
             # (float type) learning_rate_value: Learning rate for value network.
             # `learning_rate_value` should be initialized, when model.value_network is True.
             # Please set to 3e-4, when model.value_network is True.
@@ -168,16 +168,13 @@ class IQLPolicy(Policy):
         self._priority_IS_weight = self._cfg.priority_IS_weight
         self._num_actions = self._cfg.learn.num_actions
 
-        # TODO: just for sure, delete it if pass
-        assert self._cfg.model.twin_critic, "IQL is set with twin critic defaultly"
-
         # Weight Init
         init_w = self._cfg.learn.init_w
         # actor policy
         self._model.actor[-1].mu.weight.data.uniform_(-init_w, init_w)
         self._model.actor[-1].mu.bias.data.uniform_(-init_w, init_w)
-        self._model.actor[-1].log_sigma_layer.weight.data.uniform_(-init_w, init_w)
-        self._model.actor[-1].log_sigma_layer.bias.data.uniform_(-init_w, init_w)
+        # self._model.actor[-1].log_sigma_layer.weight.data.uniform_(-init_w, init_w)
+        # self._model.actor[-1].log_sigma_layer.bias.data.uniform_(-init_w, init_w)
         # critic
         self._model.critic[0][-1].last.weight.data.uniform_(-init_w, init_w)
         self._model.critic[0][-1].last.bias.data.uniform_(-init_w, init_w)
@@ -192,8 +189,12 @@ class IQLPolicy(Policy):
             self._model.value_critic.parameters(),
             lr=self._cfg.learn.learning_rate_value,
         )
-        self._optimizer_q = Adam(
-            self._model.critic.parameters(),        # TODO： two critic, one optim？
+        self._optimizer_q1 = Adam(
+            self._model.critic[0].parameters(),
+            lr=self._cfg.learn.learning_rate_q,
+        )
+        self._optimizer_q2 = Adam(
+            self._model.critic[1].parameters(),
             lr=self._cfg.learn.learning_rate_q,
         )
         self._optimizer_policy = Adam(
@@ -251,6 +252,27 @@ class IQLPolicy(Policy):
         reward = data['reward']
         done = data['done']
         
+        # normalize observation
+        mean = torch.tensor(self._cfg.dataset_mean).to(self._device)
+        std = torch.tensor(self._cfg.dataset_std).to(self._device)
+        obs = (obs - mean) / std
+        next_obs = (next_obs - mean) / std
+        
+        # print(f'====== obs normalized ======')
+        # print(f'obs: {torch.mean(obs)}, {torch.std(obs)}')
+        
+        
+        # # print(f'====== reward normalized ======')
+        # print(f'before reward: {torch.min(reward)}, {torch.max(reward)}')
+        
+        # # normalize reward
+        # reward_bounds = self._cfg.dataset_reward
+        # reward = (reward - reward_bounds[0]) / (reward_bounds[1] - reward_bounds[0]) * 1000
+        
+        # # print(f'====== reward normalized ======')
+        # print(f'bounds: {reward_bounds}')
+        # print(f'reward: {torch.min(reward)}, {torch.max(reward)}')
+
         value_forward = lambda input: self._learn_model.forward(input, mode='compute_value_critic')['v_value']
         q_forward = lambda input: self._learn_model.forward(input, mode='compute_critic')['q_value']
         policy_forward = lambda input: self._learn_model.forward(input, mode='compute_actor')['logit']
@@ -289,10 +311,12 @@ class IQLPolicy(Policy):
         loss_dict['q2_loss'] = q2_loss
         
         # 4. update network
-        self._optimizer_q.zero_grad()
-        loss_dict['q1_loss'].backward(retain_graph=True)
+        self._optimizer_q1.zero_grad()
+        loss_dict['q1_loss'].backward()
+        self._optimizer_q1.step()
+        self._optimizer_q2.zero_grad()
         loss_dict['q2_loss'].backward()
-        self._optimizer_q.step()
+        self._optimizer_q2.step()
         
         self._optimizer_value.zero_grad()
         loss_dict['value_loss'].backward()
@@ -312,7 +336,7 @@ class IQLPolicy(Policy):
         # target update
         self._target_model.update(self._learn_model.state_dict())
         return {
-            'cur_lr_q': self._optimizer_q.defaults['lr'],
+            'cur_lr_q': self._optimizer_q1.defaults['lr'],
             'cur_lr_p': lr,
             'cur_lr_v': self._optimizer_value.defaults['lr'],
             'priority': td_error_per_sample.abs().tolist(),
@@ -320,6 +344,8 @@ class IQLPolicy(Policy):
             'q_value': torch.min(q1, q2).detach().mean().item(),
             'target_q_value': target_q.detach().mean().item(),
             'value': value.detach().mean().item(),
+            'action_mu': mu.detach().mean().item(),
+            'action_sigma': sigma.detach().mean().item(),
             **loss_dict
         }
         
@@ -327,7 +353,8 @@ class IQLPolicy(Policy):
         return {
             'model': self._learn_model.state_dict(),
             'target_model': self._target_model.state_dict(),
-            'optimizer_q': self._optimizer_q.state_dict(),
+            'optimizer_q1': self._optimizer_q1.state_dict(),
+            'optimizer_q2': self._optimizer_q2.state_dict(),
             'optimizer_policy': self._optimizer_policy.state_dict(),
             'optimizer_value': self._optimizer_value.state_dict(),
         }
@@ -335,7 +362,8 @@ class IQLPolicy(Policy):
     def _load_state_dict_learn(self, state_dict: Dict[str, Any]) -> None:
         self._learn_model.load_state_dict(state_dict['model'])
         self._target_model.load_state_dict(state_dict['target_model'])
-        self._optimizer_q.load_state_dict(state_dict['optimizer_q'])
+        self._optimizer_q1.load_state_dict(state_dict['optimizer_q1'])
+        self._optimizer_q2.load_state_dict(state_dict['optimizer_q2'])
         self._optimizer_policy.load_state_dict(state_dict['optimizer_policy'])
         self._optimizer_value.load_state_dict(state_dict['optimizer_value'])
 
@@ -366,6 +394,12 @@ class IQLPolicy(Policy):
         if self._cuda:
             data = to_device(data, self._device)
         self._eval_model.eval()
+        
+        # normalize observation
+        mean = torch.tensor(self._cfg.dataset_mean).to(self._device)
+        std = torch.tensor(self._cfg.dataset_std).to(self._device)
+        data = (data - mean) / std
+        
         with torch.no_grad():
             (mu, sigma) = self._eval_model.forward(data, mode='compute_actor')['logit']
             action = torch.tanh(mu)  # deterministic_eval
