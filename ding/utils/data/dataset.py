@@ -93,11 +93,14 @@ class D4RLDataset(Dataset):
         self._std = dataset['observations'].std(0) + eps
         action_max = dataset['actions'].max(0)
         action_min = dataset['actions'].min(0)
+        reward_max = dataset['rewards'].max()
+        reward_min = dataset['rewards'].min()
         if add_action_buffer:
             action_buffer = 0.05 * (action_max - action_min)
             action_max = (action_max + action_buffer).clip(max=env.action_space.high)
             action_min = (action_min - action_buffer).clip(min=env.action_space.low)
         self._action_bounds = np.stack([action_min, action_max], axis=0)
+        self._reward_bounds = (reward_min, reward_max)
 
     def _normalize_states(self, dataset):
         dataset['observations'] = (dataset['observations'] - self._mean) / self._std
@@ -115,6 +118,10 @@ class D4RLDataset(Dataset):
     @property
     def action_bounds(self) -> np.ndarray:
         return self._action_bounds
+    
+    @property
+    def reward_bounds(self) -> np.ndarray:
+        return self._reward_bounds
 
     @property
     def statistics(self) -> dict:

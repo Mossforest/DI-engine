@@ -42,6 +42,9 @@ def main(main_config, create_config, args):
         set_pkg_seed(cfg.seed, use_cuda=cfg.policy.cuda)
 
         dataset = create_dataset(cfg)
+        cfg.policy.dataset_mean = dataset.mean
+        cfg.policy.dataset_std = dataset.std
+        cfg.policy.dataset_reward = dataset.reward_bounds
         model = IQLNetwork(**cfg.policy.model)
         policy = IQLPolicy(cfg.policy, model=model)
 

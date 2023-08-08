@@ -252,6 +252,27 @@ class IQLPolicy(Policy):
         reward = data['reward']
         done = data['done']
         
+        # normalize observation
+        mean = torch.tensor(self._cfg.dataset_mean).to(self._device)
+        std = torch.tensor(self._cfg.dataset_std).to(self._device)
+        obs = (obs - mean) / std
+        next_obs = (next_obs - mean) / std
+        
+        # print(f'====== obs normalized ======')
+        # print(f'obs: {torch.mean(obs)}, {torch.std(obs)}')
+        
+        
+        # # print(f'====== reward normalized ======')
+        # print(f'before reward: {torch.min(reward)}, {torch.max(reward)}')
+        
+        # # normalize reward
+        # reward_bounds = self._cfg.dataset_reward
+        # reward = (reward - reward_bounds[0]) / (reward_bounds[1] - reward_bounds[0]) * 1000
+        
+        # # print(f'====== reward normalized ======')
+        # print(f'bounds: {reward_bounds}')
+        # print(f'reward: {torch.min(reward)}, {torch.max(reward)}')
+
         value_forward = lambda input: self._learn_model.forward(input, mode='compute_value_critic')['v_value']
         q_forward = lambda input: self._learn_model.forward(input, mode='compute_critic')['q_value']
         policy_forward = lambda input: self._learn_model.forward(input, mode='compute_actor')['logit']
@@ -373,6 +394,12 @@ class IQLPolicy(Policy):
         if self._cuda:
             data = to_device(data, self._device)
         self._eval_model.eval()
+        
+        # normalize observation
+        mean = torch.tensor(self._cfg.dataset_mean).to(self._device)
+        std = torch.tensor(self._cfg.dataset_std).to(self._device)
+        data = (data - mean) / std
+        
         with torch.no_grad():
             (mu, sigma) = self._eval_model.forward(data, mode='compute_actor')['logit']
             action = torch.tanh(mu)  # deterministic_eval

@@ -3,9 +3,9 @@
 from easydict import EasyDict
 
 main_config = dict(
-    exp_name="hopper_medium-expert_iql_seed0-ind07",
+    exp_name="hopper_medium-expert_iql_seed0-ind07-v2",
     env=dict(
-        env_id='hopper-medium-expert-v0',
+        env_id='hopper-medium-expert-v2',
         collector_env_num=1,
         evaluator_env_num=8,
         use_act_scale=True,
