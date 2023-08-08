@@ -30,7 +30,7 @@ def make_args():
 
 def make_config(args):
     breakout_averaged_dqn_config = dict(
-        exp_name=f'adqn_prime{args.prime}_fix_seed{args.seed}',
+        exp_name=f'adqn_prime{args.prime}_notarget_seed{args.seed}',
         seed=args.seed,
         env=dict(
             collector_env_num=8,

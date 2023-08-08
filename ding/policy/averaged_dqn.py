@@ -179,20 +179,18 @@ class AveragedDQNPolicy(DQNPolicy):
             self._prime_model_list = deque([copy.deepcopy(self._model) for _ in range(self._num_of_prime)])
 
         # # use model_wrapper for specialized demands of different modes
-        self._target_model_list = copy.deepcopy(self._prime_model_list)
-        for idx, target_model in enumerate(self._target_model_list):
-            self._target_model_list[idx] = model_wrap(
-                target_model,
-                wrapper_name='target',
-                update_type='assign',
-                update_kwargs={'freq': self._cfg.learn.target_update_freq}
-            )
+        # self._target_model_list = copy.deepcopy(self._prime_model_list)
+        # for idx, target_model in enumerate(self._target_model_list):
+        #     self._target_model_list[idx] = model_wrap(
+        #         target_model,
+        #         wrapper_name='target',
+        #         update_type='assign',
+        #         update_kwargs={'freq': self._cfg.learn.target_update_freq}
+        #     )
         self._learn_model = model_wrap(self._model, wrapper_name='argmax_sample')
         self._learn_model.reset()
-        for prime_model in self._prime_model_list:
-            prime_model.reset()
-        for target_model in self._target_model_list:
-            target_model.reset()
+        # for target_model in self._target_model_list:
+        #     target_model.reset()
 
     def _forward_learn(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -226,8 +224,8 @@ class AveragedDQNPolicy(DQNPolicy):
         self._learn_model.train()
         for prime_model in self._prime_model_list:
             prime_model.train()
-        for target_model in self._target_model_list:
-            target_model.train()
+        # for target_model in self._target_model_list:
+        #     target_model.train()
         # Current q value (main model)
         q_value = self._learn_model.forward(data['obs'])['logit']
         with torch.no_grad():
@@ -242,17 +240,10 @@ class AveragedDQNPolicy(DQNPolicy):
         with torch.no_grad():
             # target q value of target net (k prime)
             target_q_value = 0
-            for target_model in self._target_model_list:
+            for target_model in self._prime_model_list:
                 target_q_value += target_model.forward(data['next_obs'])['logit']
             target_q_value /= self._num_of_prime
-            # Max q value action (main model), i.e. Double DQN
-            next_q_value = self._learn_model.forward(data['next_obs'])['logit']
-            for idx, prime_model in enumerate(self._prime_model_list):
-                if idx == 0:
-                    continue
-                next_q_value += prime_model.forward(data['next_obs'])['logit']
-            next_q_value /= self._num_of_prime
-            target_q_action = next_q_value.argmax(dim=-1)
+            target_q_action = target_q_value.argmax(dim=-1)
 
         data_n = q_nstep_td_data(
             q_value, target_q_value, data['action'], target_q_action, data['reward'], data['done'], data['weight']
@@ -277,8 +268,8 @@ class AveragedDQNPolicy(DQNPolicy):
         # =============
         # after update
         # =============
-        for idx in range(self._num_of_prime):
-            self._target_model_list[idx].update(self._prime_model_list[idx].state_dict())
+        # for idx in range(self._num_of_prime):
+        #     self._target_model_list[idx].update(self._prime_model_list[idx].state_dict())
         
         return {
             'cur_lr': self._optimizer.defaults['lr'],
@@ -457,11 +448,11 @@ class AveragedDQNPolicy(DQNPolicy):
             - state_dict (:obj:`Dict[str, Any]`): the dict of current policy learn state, for saving and restoring.
         """
         prime_list = [learn_model.state_dict() for learn_model in self._prime_model_list]
-        target_list = [learn_model.state_dict() for learn_model in self._target_model_list]
+        # target_list = [learn_model.state_dict() for learn_model in self._target_model_list]
         return {
             'model': self._learn_model.state_dict(),
             'prime_list': prime_list,
-            'target_list': target_list,
+            # 'target_list': target_list,
             'optimizer': self._optimizer.state_dict(),
         }
 
@@ -479,7 +470,7 @@ class AveragedDQNPolicy(DQNPolicy):
         """
         for idx in range(self._num_of_prime):
             self._learn_model_list[idx].load_state_dict(state_dict['prime_list'][idx])
-            self._target_model_list[idx].load_state_dict(state_dict['target_list'][idx])
+            # self._target_model_list[idx].load_state_dict(state_dict['target_list'][idx])
         self._learn_model.load_state_dict(state_dict['model'])
         self._optimizer.load_state_dict(state_dict['optimizer'])
 
