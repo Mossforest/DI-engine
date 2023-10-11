@@ -16,6 +16,7 @@ class BipedalWalkerEnv(BaseEnv):
         self._init_flag = False
         self._act_scale = cfg.act_scale
         self._rew_clip = cfg.rew_clip
+        self._hardcore = cfg.hardcore
         if "replay_path" in cfg:
             self._replay_path = cfg.replay_path
         else:
@@ -23,7 +24,7 @@ class BipedalWalkerEnv(BaseEnv):
 
     def reset(self) -> np.ndarray:
         if not self._init_flag:
-            self._env = gym.make('BipedalWalker-v3')
+            self._env = gym.make('BipedalWalker-v3', hardcore=self._hardcore)
             self._observation_space = self._env.observation_space
             self._action_space = self._env.action_space
             self._reward_space = gym.spaces.Box(
