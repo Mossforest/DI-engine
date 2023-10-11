@@ -31,41 +31,10 @@ from ding.torch_utils.network.dreamer import DenseHead
 Tuple = lambda *args: tuple(args)
 ModelPrediction =  namedtuple('ModelPrediction', ['pred_noise', 'pred_x_start'])
 
-
-def default(val, d):
-    if val is not None:
-        return val
-    return d() if callable(d) else d
-
 def extract(a, t, x_shape):
     b, *_ = t.shape
     out = a.gather(-1, t)
     return out.reshape(b, *((1,) * (len(x_shape) - 1)))
-
-def unnormalize_to_zero_to_one(t):
-    return (t + 1) * 0.5
-
-def normalize_to_neg_one_to_one(img):
-    return img * 2 - 1
-
-def linear_beta_schedule(timesteps):
-    scale = 1000 / timesteps
-    beta_start = scale * 0.0001
-    beta_end = scale * 0.02
-    return torch.linspace(beta_start, beta_end, timesteps, dtype = torch.float64)
-
-def cosine_beta_schedule(timesteps, s = 0.008):
-    """
-    cosine schedule
-    as proposed in https://openreview.net/forum?id=-NEXDKk8gZ
-    """
-    steps = timesteps + 1
-    x = torch.linspace(0, timesteps, steps, dtype = torch.float64)
-    alphas_cumprod = torch.cos(((x / timesteps) + s) / (1 + s) * math.pi * 0.5) ** 2
-    alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
-    betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
-    return torch.clip(betas, 0, 0.999)
-
 
 @WORLD_MODEL_REGISTRY.register('diffusion')
 class DiffusionWorldModel(WorldModel, nn.Module):
@@ -100,9 +69,19 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         # diffusion schedule
         self.n_timesteps = cfg.n_timesteps
         if self.beta_schedule == 'linear':
-            betas = linear_beta_schedule(self.n_timesteps)
+            scale = 1000 / self.n_timesteps
+            beta_start = scale * 0.0001
+            beta_end = scale * 0.02
+            betas = torch.linspace(beta_start, beta_end, self.n_timesteps, dtype = torch.float64)
         elif self.beta_schedule == 'cosine':
-            betas = cosine_beta_schedule(self.n_timesteps)
+            # cosine schedule as proposed in https://openreview.net/forum?id=-NEXDKk8gZ
+            s = 0.008
+            steps = self.n_timesteps + 1
+            x = torch.linspace(0, self.n_timesteps, steps, dtype = torch.float64)
+            alphas_cumprod = torch.cos(((x / self.n_timesteps) + s) / (1 + s) * math.pi * 0.5) ** 2
+            alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
+            betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
+            betas = torch.clip(betas, 0, 0.999)
         
         alphas = 1. - betas
         alphas_cumprod = torch.cumprod(alphas, dim=0)
@@ -132,6 +111,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         register_buffer('posterior_mean_coef2', (1. - alphas_cumprod_prev) * torch.sqrt(alphas) / (1. - alphas_cumprod))
         
         self.model = DiffusionModelNet()  # TODO net class
+        self.p_sample_fn = self.default_sample_fn
         if self._cuda:
             self.cuda()
         
@@ -144,29 +124,6 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             'min_pred': pred.min().item(), 'min_targ': targ.min().item(),
             'max_pred': pred.max().item(), 'max_targ': targ.max().item(),
         }
-        return loss, info
-
-    def q_sample(self, x_start, t, noise=None):
-        if noise is None:   # TODO
-            noise = torch.randn_like(x_start)
-        sample = (
-            extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start +
-            extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
-        )
-        return sample
-
-    def p_losses(self, x_start, cond_a, cond_s, t):
-        noise = torch.randn_like(x_start)
-        x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
-
-        x_recon = self.model(x_noisy, cond_a, cond_s, t)
-        assert x_start.shape == x_recon.shape
-
-        if self.predict_epsilon:    # model outputs noise
-            loss, info = self.loss_fn(x_recon, noise)
-        else:                       # model outputs x_0
-            loss, info = self.loss_fn(x_recon, x_start)
-
         return loss, info
 
     def train(self, env_buffer: IBuffer, envstep: int, train_iter: int):
@@ -200,10 +157,18 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             cond_a = cond_a.cuda()
             cond_s = cond_s.cuda()
         
-        # sample and train
+        # sample and model
         t = torch.randint(0, self.n_timesteps, (self.batch_size,), device=x_start.device).long()
-        loss, logvar = self.p_losses(x_start, cond_a,cond_s, t)
+        noise = torch.randn_like(x_start)
+        x_noisy = (
+            extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start +
+            extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
+        )
+        x_recon = self.model(x_noisy, cond_a, cond_s, t)
+        assert x_start.shape == x_recon.shape
+        loss, logvar = self.loss_fn(x_recon, noise)
         
+        # train with loss
         self.model.train(loss)  # TODO: below in net
             # def train(self, loss: torch.Tensor):
             # self.optimizer.zero_grad()
@@ -220,63 +185,35 @@ class DiffusionWorldModel(WorldModel, nn.Module):
 
     #------------------------------------------ eval ------------------------------------------#
 
-    def predict_start_from_noise(self, x_t, t, noise):
-        if self.predict_epsilon:
-            return (
-                extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t -
-                extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * noise
+    @torch.no_grad()
+    def default_sample_fn(self, x, cond_a, cond_s, t):
+        # p mean variance
+        # 1. predict start from noise
+        x_t = x
+        noise = self.model(x_t, cond_a, cond_s, t)
+        x_recon = (
+                extract(self.sqrt_recip_alphas_cumprod, t, x.shape) * x_t -
+                extract(self.sqrt_recipm1_alphas_cumprod, t, x.shape) * noise
             )
-        else:
-            return noise  # if not self.predict_noise, the model directly output x_0 which was named as 'noise'
+        if self.clip_denoised:  # TODO: should we?
+            x_recon.clamp_(-1., 1.)
 
-    def q_posterior(self, x_start, x_t, t):
+        # 2. q posterior
+        x_start = x_recon
         posterior_mean = (
             extract(self.posterior_mean_coef1, t, x_t.shape) * x_start +
             extract(self.posterior_mean_coef2, t, x_t.shape) * x_t
         )
         posterior_variance = extract(self.posterior_variance, t, x_t.shape)
         posterior_log_variance_clipped = extract(self.posterior_log_variance_clipped, t, x_t.shape)
-        return posterior_mean, posterior_variance, posterior_log_variance_clipped
-
-    def p_mean_variance(self, x, cond_a, cond_s, t):
-        x_recon = self.predict_start_from_noise(x, t=t, noise=self.model(x, cond_a, cond_s, t))
-
-        if self.clip_denoised:
-            x_recon.clamp_(-1., 1.)
-        else:
-            assert RuntimeError()
-
-        model_mean, posterior_variance, posterior_log_variance = self.q_posterior(
-            x_start=x_recon, x_t=x, t=t)
-        return model_mean, posterior_variance, posterior_log_variance
-
-    @torch.no_grad()
-    def default_sample_fn(self, x, cond_a, cond_s, t):
-        model_mean, _, model_log_variance = self.p_mean_variance(x, cond_a, cond_s, t)
-        model_std = torch.exp(0.5 * model_log_variance)
-        # no noise when t == 0
-        noise = torch.randn_like(x)
-        noise[t == 0] = 0
-        return model_mean + model_std * noise
-    
-    @torch.no_grad()
-    def p_sample_loop(self, cond_a, cond_s, sample_fn=default_sample_fn):
-        def make_timesteps(batch_size, i, device):
-            t = torch.full((batch_size,), i, device=device, dtype=torch.long)
-            return t
+        # p mean variance end
         
-        device = self.betas.device  # TODO
-        x = torch.randn(cond_s, device=device)
-        for i in reversed(range(0, self.n_timesteps)):
-            t = make_timesteps(self.batch_size, i, device)
-            x = sample_fn(self, x, cond_a, cond_s, t)
-        return x
+        posterior_std = torch.exp(0.5 * posterior_log_variance_clipped)
+        # no added noise when t == 0
+        noise_add = torch.randn_like(x)
+        noise_add[t == 0] = 0
+        return posterior_mean + posterior_std * noise_add
 
-    @torch.no_grad()
-    def p_eval(self, x_start, cond_a, cond_s):
-        x_recon = self.p_sample_loop(self, cond_a, cond_s)
-        loss, info = self.loss_fn(x_recon, x_start)
-        return loss, info
 
     def eval(self, env_buffer: IBuffer, envstep: int, train_iter: int):
         r"""
@@ -309,7 +246,15 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             cond_a = cond_a.cuda()
             cond_s = cond_s.cuda()
         
-        loss, logvar = self.p_eval(self, x_start, cond_a, cond_s)
+        # evaluation
+        with torch.no_grad():
+            device = self.betas.device  # TODO: ?
+            x = torch.randn(cond_s, device=device)
+            for i in reversed(range(0, self.n_timesteps)):
+                t = torch.full((self.batch_size,), i, device=device, dtype=torch.long)
+                x = self.p_sample_fn(self, x, cond_a, cond_s, t)
+            x_recon = x
+            loss, logvar = self.loss_fn(x_recon, x_start)
         
         self.last_train_step = envstep
         # log
