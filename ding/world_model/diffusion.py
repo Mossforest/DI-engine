@@ -23,9 +23,7 @@ from ding.worker import IBuffer
 from ding.envs import BaseEnv
 from ding.model import ConvEncoder
 from ding.world_model.base_world_model import WorldModel
-from ding.world_model.model.networks import RSSM, ConvDecoder
-from ding.torch_utils import to_device
-from ding.torch_utils.network.dreamer import DenseHead
+from ding.world_model.model.diffusionnet import DiffusionNet
 
 # ddpm
 Tuple = lambda *args: tuple(args)
@@ -110,8 +108,17 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         register_buffer('posterior_mean_coef1', betas * torch.sqrt(alphas_cumprod_prev) / (1. - alphas_cumprod))
         register_buffer('posterior_mean_coef2', (1. - alphas_cumprod_prev) * torch.sqrt(alphas) / (1. - alphas_cumprod))
         
-        self.model = DiffusionModelNet()  # TODO net class
-        self.p_sample_fn = self.default_sample_fn
+        self.model = DiffusionNet(
+            state_size=cfg.state_size,
+            action_size=cfg.action_size,
+            hidden_size=cfg.hidden_size,
+            n_timesteps=cfg.n_timesteps,
+            background_size=cfg.background_size,
+            layer_num=5,
+            learning_rate=cfg.learning_rate,
+            activation='mish',
+            norm_type='LN'
+        )
         if self._cuda:
             self.cuda()
         
@@ -144,6 +151,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         action = data['action']
         reward = data['reward']
         next_obs = data['next_obs']
+        background = data['background']
         if len(reward.shape) == 1:
             reward = reward.unsqueeze(1)
         if len(action.shape) == 1:
@@ -156,6 +164,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             x_start = x_start.cuda()
             cond_a = cond_a.cuda()
             cond_s = cond_s.cuda()
+            background = background.cuda()
         
         # sample and model
         t = torch.randint(0, self.n_timesteps, (self.batch_size,), device=x_start.device).long()
@@ -164,19 +173,12 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start +
             extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
         )
-        x_recon = self.model(x_noisy, cond_a, cond_s, t)
+        x_recon = self.model(x_noisy, cond_a, cond_s, t, background)
         assert x_start.shape == x_recon.shape
         loss, logvar = self.loss_fn(x_recon, noise)
         
         # train with loss
-        self.model.train(loss)  # TODO: below in net
-            # def train(self, loss: torch.Tensor):
-            # self.optimizer.zero_grad()
-            # loss += 0.01 * torch.sum(self.max_logvar) - 0.01 * torch.sum(self.min_logvar)
-            # if self.use_decay:
-            #     loss += self.get_decay_loss()
-            # loss.backward()
-            # self.optimizer.step()
+        self.model.train(loss)
         self.last_train_step = envstep
         # log
         if self.tb_logger is not None:
@@ -186,11 +188,11 @@ class DiffusionWorldModel(WorldModel, nn.Module):
     #------------------------------------------ eval ------------------------------------------#
 
     @torch.no_grad()
-    def default_sample_fn(self, x, cond_a, cond_s, t):
+    def p_sample_fn(self, x, cond_a, cond_s, t, background):
         # p mean variance
         # 1. predict start from noise
         x_t = x
-        noise = self.model(x_t, cond_a, cond_s, t)
+        noise = self.model(x_t, cond_a, cond_s, t, background)  # TODO: background is a tensor [one-hot env, continuous friction]
         x_recon = (
                 extract(self.sqrt_recip_alphas_cumprod, t, x.shape) * x_t -
                 extract(self.sqrt_recipm1_alphas_cumprod, t, x.shape) * noise
@@ -233,6 +235,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         action = data['action']
         reward = data['reward']
         next_obs = data['next_obs']
+        background = data['background']
         if len(reward.shape) == 1:
             reward = reward.unsqueeze(1)
         if len(action.shape) == 1:
@@ -245,14 +248,14 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             x_start = x_start.cuda()
             cond_a = cond_a.cuda()
             cond_s = cond_s.cuda()
+            background = background.cuda()
         
         # evaluation
         with torch.no_grad():
-            device = self.betas.device  # TODO: ?
-            x = torch.randn(cond_s, device=device)
+            x = torch.randn(cond_s)
             for i in reversed(range(0, self.n_timesteps)):
-                t = torch.full((self.batch_size,), i, device=device, dtype=torch.long)
-                x = self.p_sample_fn(self, x, cond_a, cond_s, t)
+                t = torch.full((self.batch_size,), i, dtype=torch.long)
+                x = self.p_sample_fn(self, x, cond_a, cond_s, t, background)
             x_recon = x
             loss, logvar = self.loss_fn(x_recon, x_start)
         

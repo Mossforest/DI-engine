@@ -8,7 +8,7 @@ from dizoo.box2d.bipedalwalker.envs import BipedalWalkerEnv
 class TestBipedalWalkerEnv:
 
     def test_naive(self):
-        env = BipedalWalkerEnv(EasyDict({'act_scale': True, 'rew_clip': True, 'replay_path': None}))
+        env = BipedalWalkerEnv(EasyDict({'act_scale': True, 'rew_clip': True, 'replay_path': None, 'hardcore': False}))
         env.seed(123)
         assert env._seed == 123
         obs = env.reset()

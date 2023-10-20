@@ -3,7 +3,7 @@ from typing import Optional, Union
 import torch
 import torch.nn as nn
 
-from .nn_module import conv2d_block, fc_block
+from .nn_module import conv2d_block, fc_block, fc_prenorm_block
 
 
 class ResBlock(nn.Module):
@@ -145,6 +145,71 @@ class ResFCBlock(nn.Module):
         x = self.fc1(x)
         x = self.fc2(x)
         x = self.act(x + identity)
+        if self.dropout is not None:
+            x = self.dropout(x)
+        return x
+
+
+class ResFCTemporalBlock(nn.Module):
+    r"""
+    Overview:
+        Residual Block with 2 fully connected layers and temporal info. Pre-norm is also enabled.
+        t -> mlp ---------------\+
+        x -> norm -> fc1 -> act -> norm -> fc2 -> act -> out
+        \______________________________________/+
+
+    Interfaces:
+        forward
+    """
+
+    def __init__(
+        self, in_channels: int, out_channels: int, time_channels: int, activation: nn.Module = nn.Mish(), norm_type: str = 'LN', dropout: float = None, prenorm = True
+    ):
+        r"""
+        Overview:
+            Init the fully connected layer residual block.
+        Arguments:
+            - in_channels (:obj:`int`): The number of channels in the input tensor.
+            - activation (:obj:`nn.Module`): The optional activation function.
+            - norm_type (:obj:`str`): The type of the normalization, default set to 'BN'.
+            - dropout (:obj:`float`): The dropout rate, default set to None.
+        """
+        super(ResFCBlock, self).__init__()
+        self.act = activation
+        self.prenorm = prenorm
+        if dropout is not None:
+            self.dropout = nn.Dropout(dropout)
+        else:
+            self.dropout = None
+        if self.prenorm:
+            self.fc1 = fc_prenorm_block(in_channels, out_channels, activation=self.act, norm_type=norm_type)
+            self.fc2 = fc_prenorm_block(in_channels, out_channels, activation=None, norm_type=norm_type)
+        else:
+            self.fc1 = fc_block(in_channels, out_channels, activation=self.act, norm_type=norm_type)
+            self.fc2 = fc_block(in_channels, out_channels, activation=None, norm_type=norm_type)
+        
+        self.time_mlp = nn.Sequential(
+            self.act,
+            nn.Linear(time_channels, out_channels),
+            # TODO: Rearrange('batch t -> batch t 1'),
+        )
+        self.residual_conv = nn.Linear(in_channels, out_channels) \
+            if in_channels != out_channels else nn.Identity()
+
+    def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        r"""
+        Overview:
+            Return the redisual block output.
+        Arguments:
+            - x (:obj:`torch.Tensor`): The input tensor.
+            - t (:obj:`torch.Tensor`): The time tensor.
+        Returns:
+            - x (:obj:`torch.Tensor`): The resblock output tensor.
+        """
+        identity = x
+        x = self.fc1(x) + self.time_mlp(t)
+        x = self.fc2(x)
+        x = self.act(x + self.residual_conv(identity))
         if self.dropout is not None:
             x = self.dropout(x)
         return x

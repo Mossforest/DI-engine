@@ -127,6 +127,7 @@ def build_activation(activation: str, inplace: bool = None) -> nn.Module:
         "elu": nn.ELU(),
         "square": Lambda(lambda x: x ** 2),
         "identity": Lambda(lambda x: x),
+        "mish": nn.Mish(),
     }
     if activation.lower() in act_func.keys():
         return act_func[activation]

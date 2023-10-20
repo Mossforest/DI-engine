@@ -272,6 +272,44 @@ def fc_block(
     return sequential_pack(block)
 
 
+def fc_prenorm_block(
+        in_channels: int,
+        out_channels: int,
+        activation: nn.Module = None,
+        norm_type: str = None,
+        use_dropout: bool = False,
+        dropout_probability: float = 0.5
+) -> nn.Sequential:
+    r"""
+    Overview:
+        Create a fully-connected block with activation, pre-normalization and dropout.
+        Optional normalization can be done to the dim 1 (across the channels)
+        x -> fc -> norm -> act -> dropout -> out
+    Arguments:
+        - in_channels (:obj:`int`): Number of channels in the input tensor
+        - out_channels (:obj:`int`): Number of channels in the output tensor
+        - activation (:obj:`nn.Module`): the optional activation function
+        - norm_type (:obj:`str`): type of the normalization
+        - use_dropout (:obj:`bool`) : whether to use dropout in the fully-connected block
+        - dropout_probability (:obj:`float`) : probability of an element to be zeroed in the dropout. Default: 0.5
+    Returns:
+        - block (:obj:`nn.Sequential`): a sequential list containing the torch layers of the fully-connected block
+
+    .. note::
+
+        you can refer to nn.linear (https://pytorch.org/docs/master/generated/torch.nn.Linear.html)
+    """
+    block = []
+    if norm_type is not None:
+        block.append(build_normalization(norm_type, dim=1)(in_channels))
+    block.append(nn.Linear(in_channels, out_channels))
+    if activation is not None:
+        block.append(activation)
+    if use_dropout:
+        block.append(nn.Dropout(dropout_probability))
+    return sequential_pack(block)
+
+
 def normed_linear(in_features, out_features, bias: bool = True, device=None, dtype=None, scale=1.0):
     """
     nn.Linear but with normalized fan-in init
