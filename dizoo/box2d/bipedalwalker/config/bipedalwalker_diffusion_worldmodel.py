@@ -3,34 +3,38 @@
 from easydict import EasyDict
 
 main_config = dict(
-    exp_name="bipedalwalker_diffusion_worldmodel",
+    exp_name="bipedalwalker_diffusion_worldmodel_seed0",
     env=dict(
         env_name='BipedalWalker-v3',
-        collector_env_num=8,
-        evaluator_env_num=5,
         act_scale=True,
-        n_evaluator_episode=5,
-        rew_clip=True,  # reward clip
+        rew_clip=True,
         replay_path=None,
+        hardcore=True,
+    ),
+    policy=dict(
+        cuda=True,
+        collect=dict(
+            data_type='hdf5',
+            # offline data path
+            data_path='/mnt/nfs/chenxinyan/DI-engine/bipedalwalker_data/friction_known_train.hdf5',
+        ),
     ),
     world_model=dict(
         cuda=True,
+        n_timesteps=1000,
+        beta_schedule='linear',
+        clip_denoised=False,
         model=dict(
             state_size=24,
             action_size=4,
             background_size=3,
+            hidden_size=512,
         ),
         learn=dict(
             data_path=None,
             train_epoch=30000,
             batch_size=256,
-            learning_rate_q=3e-4,
-            learning_rate_policy=1e-4,
-            learning_rate_alpha=1e-4,
-            alpha=0.2,
-            auto_alpha=False,
-            lagrange_thresh=-1.0,
-            min_q_weight=5.0,
+            learning_rate=3e-4,
         ),
     ),
 )
@@ -40,10 +44,14 @@ main_config = main_config
 
 create_config = dict(
     env=dict(
-        type='d4rl',
-        import_names=['dizoo.d4rl.envs.d4rl_env'],
+        type='bipedalwalker',
+        import_names=['dizoo.box2d.bipedalwalker.envs.bipedalwalker_env'],
     ),
     env_manager=dict(type='base'),
+    policy=dict(
+        type='cql',
+        import_names=['ding.policy.cql'],
+    ),
     world_model=dict(
         type='diffusion',
         import_names=['ding.world_model.diffusion'],

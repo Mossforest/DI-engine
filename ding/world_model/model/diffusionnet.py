@@ -26,13 +26,12 @@ class DiffusionNet(nn.Module):
         activation: str = 'mish',
         norm_type: str = 'LN'
     ):
-        super().__init()
+        super().__init__()
         
         assert layer_num % 2 == 1, f"The layer num of diffusion net must be odd, but got {layer_num}!"
         
         self.n_timesteps = n_timesteps
         self.activation = activation
-        self.optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
         
         # 1. Encoder & Decoder
         self.encoder = MLP(
@@ -41,7 +40,7 @@ class DiffusionNet(nn.Module):
             hidden_size, 
             layer_num=3, 
             activation=build_activation(activation), 
-            norm_type=norm_type,     # TODO: stay with ResBlock
+            norm_type=norm_type,
         )
         self.decoder = MLP(
             hidden_size, 
@@ -59,25 +58,25 @@ class DiffusionNet(nn.Module):
         # 2.1. down groups
         for _ in range(layer_num // 2):
             group = nn.ModuleList([
-                FiLM(state_size + background_size, hidden_size),
+                FiLM(hidden_size, state_size + background_size),
                 ResFCTemporalBlock(hidden_size, hidden_size, time_channels=hidden_size, activation=build_activation(activation), norm_type=norm_type),
-                FiLM(action_size + background_size, hidden_size),
+                FiLM(hidden_size, action_size + background_size),
                 ResFCTemporalBlock(hidden_size, hidden_size, time_channels=hidden_size, activation=build_activation(activation), norm_type=norm_type),
             ])
             self.down_groups.append(group)
         
         # 2.2. mid group
-        self.mid_film1 = FiLM(state_size + background_size, hidden_size)
+        self.mid_film1 = FiLM(hidden_size, state_size + background_size)
         self.mid_resblock1 = ResFCTemporalBlock(hidden_size, hidden_size, time_channels=hidden_size, activation=build_activation(activation), norm_type=norm_type)
-        self.mid_film2 = FiLM(action_size + background_size, hidden_size)
+        self.mid_film2 = FiLM(hidden_size, action_size + background_size)
         self.mid_resblock2 = ResFCTemporalBlock(hidden_size, hidden_size, time_channels=hidden_size, activation=build_activation(activation), norm_type=norm_type)
         
         # 2.3. up groups
         for _ in range(layer_num // 2):
             group = nn.ModuleList([
-                FiLM(state_size + background_size, hidden_size * 2),
+                FiLM(hidden_size * 2, state_size + background_size),
                 ResFCTemporalBlock(hidden_size * 2, hidden_size, time_channels=hidden_size, activation=build_activation(activation), norm_type=norm_type),
-                FiLM(action_size + background_size, hidden_size),
+                FiLM(hidden_size, action_size + background_size),
                 ResFCTemporalBlock(hidden_size, hidden_size, time_channels=hidden_size, activation=build_activation(activation), norm_type=norm_type),
             ])
             self.up_groups.append(group)
@@ -89,6 +88,8 @@ class DiffusionNet(nn.Module):
             build_activation(self.activation),
             nn.Linear(hidden_size * 4, hidden_size)
         )
+        
+        self.optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
     
     def forward(self, x, cond_a, cond_s, t, background):
         t = self.time_mlp(t / self.n_timesteps)

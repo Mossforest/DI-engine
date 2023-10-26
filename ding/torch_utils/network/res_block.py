@@ -174,7 +174,7 @@ class ResFCTemporalBlock(nn.Module):
             - norm_type (:obj:`str`): The type of the normalization, default set to 'BN'.
             - dropout (:obj:`float`): The dropout rate, default set to None.
         """
-        super(ResFCBlock, self).__init__()
+        super(ResFCTemporalBlock, self).__init__()
         self.act = activation
         self.prenorm = prenorm
         if dropout is not None:
@@ -183,7 +183,7 @@ class ResFCTemporalBlock(nn.Module):
             self.dropout = None
         if self.prenorm:
             self.fc1 = fc_prenorm_block(in_channels, out_channels, activation=self.act, norm_type=norm_type)
-            self.fc2 = fc_prenorm_block(in_channels, out_channels, activation=None, norm_type=norm_type)
+            self.fc2 = fc_prenorm_block(out_channels, out_channels, activation=None, norm_type=norm_type)
         else:
             self.fc1 = fc_block(in_channels, out_channels, activation=self.act, norm_type=norm_type)
             self.fc2 = fc_block(in_channels, out_channels, activation=None, norm_type=norm_type)

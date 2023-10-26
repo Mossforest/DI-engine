@@ -10,7 +10,7 @@ bipedalwalker_sac_config = dict(
         act_scale=True,
         n_evaluator_episode=5,
         rew_clip=True,
-        hardcore=False,
+        hardcore=True,
     ),
     policy=dict(
         cuda=True,
@@ -55,4 +55,4 @@ create_config = bipedalwalker_sac_create_config
 if __name__ == "__main__":
     # or you can enter `ding -m serial -c bipedalwalker_sac_config.py -s 0`
     from ding.entry import serial_pipeline
-    serial_pipeline([main_config, create_config], seed=0, max_env_step=int(5e5))
+    serial_pipeline([main_config, create_config], seed=0, max_env_step=int(3e6))
