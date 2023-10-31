@@ -23,12 +23,13 @@ main_config = dict(
         cuda=True,
         n_timesteps=1000,
         beta_schedule='linear',
-        clip_denoised=False,
+        clip_denoised=True,
         model=dict(
             state_size=24,
             action_size=4,
             background_size=3,
             hidden_size=512,
+            layer_num=5,
         ),
         learn=dict(
             data_path=None,

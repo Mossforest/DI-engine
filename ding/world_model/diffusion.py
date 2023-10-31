@@ -105,7 +105,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             hidden_size=self.hidden_size,
             n_timesteps=self.n_timesteps,
             background_size=self.background_size,
-            layer_num=5,
+            layer_num=self._cfg.model.layer_num,
             learning_rate=self._cfg.learn.learning_rate,
             activation='mish',
             norm_type='LN',
@@ -245,7 +245,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         # train with loss
         self.model.train(loss.mean())
         # log
-        if self.tb_logger is not None:
+        if self.tb_logger is not None and step % 1000 == 0:
             for k, v in logvar.items():
                 self.tb_logger.add_scalar('train_model/' + k, v, step)
 
@@ -321,7 +321,9 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         
         self.last_train_step = step
         # log
+        print(f'eval')
         if self.tb_logger is not None:
+            print(f'eval...')
             for k, v in logvar.items():
                 self.tb_logger.add_scalar('eval_model/' + k, v, step)
 
