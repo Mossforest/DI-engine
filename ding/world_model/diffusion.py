@@ -262,7 +262,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             for k, v in logvar.items():
                 self.tb_logger.add_scalar('train_model/' + k, v, step)
 
-    #------------------------------------------ eval ------------------------------------------#
+    #--------------------------------------- eval ---------------------------------------#
 
     @torch.no_grad()
     def p_sample_fn(self, x, cond_a, cond_s, t, background):
