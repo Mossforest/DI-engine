@@ -73,10 +73,12 @@ def serial_pipeline_worldmodel(
             i0 = i
         
         for train_data in dataloader:
-            world_model.train(train_data, i)
+            world_model.train(train_data, i, debug=(i%100==0))
             i += 1
             if printed and i - i0 == kk:
+            # if i%100==0:
                 eval_data = train_data.copy()
+                # world_model.eval(eval_data, epoch)
         
         if printed:
             world_model.eval(eval_data, epoch)

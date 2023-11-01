@@ -85,7 +85,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             beta_start = scale * 0.0001
             beta_end = scale * 0.02
             betas = torch.linspace(beta_start, beta_end, self.n_timesteps, dtype = torch.float64)
-        elif self.beta_schedule == 'cosine':
+        elif self._cfg.beta_schedule == 'cosine':
             # cosine schedule as proposed in https://openreview.net/forum?id=-NEXDKk8gZ
             s = 0.008
             steps = self.n_timesteps + 1
@@ -137,6 +137,14 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         
         if self._cuda:
             self.cuda()
+        
+        
+        ########### debug
+        # print(f'alphas_cumprod: {self.alphas_cumprod[-20:]}')
+        # print(f'sqrt_alphas_cumprod: {self.sqrt_alphas_cumprod[-20:]}')
+        # print(f'sqrt_one_minus_alphas_cumprod: {self.sqrt_one_minus_alphas_cumprod[-20:]}')
+        # print(f'log_one_minus_alphas_cumprod: {self.log_one_minus_alphas_cumprod[-20:]}')
+        # exit()
         
 
     def loss_fn(self, pred, targ):
@@ -202,7 +210,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
     #             self.tb_logger.add_scalar('env_model_step/' + k, v, envstep)
     
     # model.train with dataset w.o. buffer
-    def train(self, data: dict, step: int):
+    def train(self, data: dict, step: int, debug=False):
         r"""
         Overview:
             Train world model using data from env_buffer.
@@ -241,6 +249,11 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         x_recon = self.model(x_noisy, cond_a, cond_s, t, background)
         assert x_start.shape == x_recon.shape
         loss, logvar = self.loss_fn(x_recon, noise)
+        # if debug:
+        #     print(f'-----------------------TRAIN {step}-----------------------')
+        #     print(f'recon : {x_recon[0]}')
+        #     print(f'noise : {noise[0]}')
+        #     print(f'loss  : {loss.mean()}')
         
         # train with loss
         self.model.train(loss.mean())
@@ -261,7 +274,12 @@ class DiffusionWorldModel(WorldModel, nn.Module):
                 extract(self.sqrt_recip_alphas_cumprod, t, x.shape) * x_t -
                 extract(self.sqrt_recipm1_alphas_cumprod, t, x.shape) * noise
             )
-        if self._cfg.clip_denoised:  # TODO: should we?
+        # if t[0] % 100==99:
+        #     print(f'NOISE  : {noise[0]}')
+        #     print(f't: {t[0]}')
+        #     print(f'1: {extract(self.sqrt_recip_alphas_cumprod, t, x.shape)[0] }')
+        #     print(f'X_RECON: {x_recon[0]}')
+        if self._cfg.clip_denoised:  # TODO
             x_recon.clamp_(-1., 1.)
 
         # 2. q posterior
@@ -311,12 +329,18 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             background = background.cuda()
         
         # evaluation
+        # print(f'-----------------------TTEST-----------------------')
         with torch.no_grad():
+            # step = 200
             x = torch.randn(x_start.shape, device=x_start.device)
             for i in reversed(range(0, self.n_timesteps)):
                 t = torch.full((self.batch_size,), i, dtype=torch.long, device=x_start.device)
                 x = self.p_sample_fn(x, cond_a, cond_s, t, background)
+                # if i % step == 0:
+                #     print(f'step {i}: {x[0]}')
             x_recon = x
+            # print(f'step 0: {x[0]}')
+            # print(f'origin: {x_start[0]}')
             loss, logvar = self.loss_fn(x_recon, x_start)
         
         self.last_train_step = step
