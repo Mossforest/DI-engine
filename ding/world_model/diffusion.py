@@ -329,27 +329,70 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             background = background.cuda()
         
         # evaluation
-        # print(f'-----------------------TTEST-----------------------')
         with torch.no_grad():
-            # step = 200
             x = torch.randn(x_start.shape, device=x_start.device)
             for i in reversed(range(0, self.n_timesteps)):
                 t = torch.full((self.batch_size,), i, dtype=torch.long, device=x_start.device)
                 x = self.p_sample_fn(x, cond_a, cond_s, t, background)
-                # if i % step == 0:
-                #     print(f'step {i}: {x[0]}')
-            x_recon = x
-            # print(f'step 0: {x[0]}')
-            # print(f'origin: {x_start[0]}')
-            loss, logvar = self.loss_fn(x_recon, x_start)
-        
+            x_recon_overall = x
+            loss, logvar = self.loss_fn(x_recon_overall, x_start)
         self.last_train_step = step
         # log
         print(f'eval')
         if self.tb_logger is not None:
-            print(f'eval...')
             for k, v in logvar.items():
-                self.tb_logger.add_scalar('eval_model/' + k, v, step)
+                self.tb_logger.add_scalar('eval_model/overall_' + k, v, step)
+        
+        # [v0.4] new eval 1
+        with torch.no_grad():
+            t = torch.randint(0, self.n_timesteps, (self.batch_size,), device=x_start.device).long()
+            t_end = torch.full((self.batch_size,), self.n_timesteps - 1, dtype=torch.long, device=x_start.device)
+            noise = torch.randn_like(x_start)
+            x_noisy = (
+                extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start +
+                extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
+            )
+            x_noisy_end = (
+                extract(self.sqrt_alphas_cumprod, t_end, x_start.shape) * x_start +
+                extract(self.sqrt_one_minus_alphas_cumprod, t_end, x_start.shape) * noise
+            )
+            noise_recon = self.model(x_noisy, cond_a, cond_s, t, background)
+            assert x_start.shape == noise_recon.shape
+            loss, logvar = self.loss_fn(noise_recon, noise)
+        if self.tb_logger is not None:
+            for k, v in logvar.items():
+                self.tb_logger.add_scalar('eval_model/noise_' + k, v, step)
+        
+        # [v0.4] new eval 2
+        with torch.no_grad():
+            x = x_noisy_end
+            for i in reversed(range(0, self.n_timesteps)):
+                t = torch.full((self.batch_size,), i, dtype=torch.long, device=x_start.device)
+                x = self.p_sample_fn(x, cond_a, cond_s, t, background)
+            x_recon_fixgauss = x
+            loss, logvar = self.loss_fn(x_recon_fixgauss, x_start)
+        if self.tb_logger is not None:
+            for k, v in logvar.items():
+                self.tb_logger.add_scalar('eval_model/fixgauss_' + k, v, step)
+        
+        # [v0.4] new eval 3
+        with torch.no_grad():
+            loss, logvar = self.loss_fn(x_recon_fixgauss, x_recon_overall)
+        if self.tb_logger is not None:
+            for k, v in logvar.items():
+                self.tb_logger.add_scalar('eval_model/fixornot' + k, v, step)
+        
+        # [v0.4] new eval 4
+        with torch.no_grad():
+            x = torch.randn(x_start.shape, device=x_start.device)
+            for i in reversed(range(0, self.n_timesteps)):
+                t = torch.full((self.batch_size,), i, dtype=torch.long, device=x_start.device)
+                x = self.p_sample_fn(x, cond_a, cond_s, t, background)
+            x_recon_nofix = x
+            loss, logvar = self.loss_fn(x_recon_overall, x_recon_nofix)
+        if self.tb_logger is not None:
+            for k, v in logvar.items():
+                self.tb_logger.add_scalar('eval_model/nofix_' + k, v, step)
 
     def step(self, obs: Tensor, action: Tensor):
         r"""

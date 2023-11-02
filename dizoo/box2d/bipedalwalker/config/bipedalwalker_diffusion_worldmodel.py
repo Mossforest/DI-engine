@@ -33,7 +33,7 @@ main_config = dict(
         ),
         learn=dict(
             data_path=None,
-            train_epoch=30000,
+            train_epoch=200,
             batch_size=256,
             learning_rate=3e-4,
         ),
