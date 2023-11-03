@@ -106,10 +106,11 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             n_timesteps=self.n_timesteps,
             background_size=self.background_size,
             layer_num=self._cfg.model.layer_num,
-            learning_rate=self._cfg.learn.learning_rate,
             activation='mish',
             norm_type='LN',
         )
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self._cfg.learn.learning_rate)
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, 1000*1000)
         
         # helper function to register buffer from float64 to float32
         register_buffer = lambda name, val: self.register_buffer(name, val.to(torch.float32))
@@ -209,11 +210,16 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         loss, logvar = self.loss_fn(x_recon, noise)
         
         # train with loss
-        self.model.train(loss.mean())
+        self.optimizer.zero_grad()
+        loss.mean().backward()
+        self.optimizer.step()
+        lr = self.optimizer.param_groups[0]['lr']
+        self.scheduler.step()
         # log
         if self.tb_logger is not None and step % 1000 == 0:
             for k, v in logvar.items():
                 self.tb_logger.add_scalar('train_model/' + k, v, step)
+            self.tb_logger.add_scalar('train_model/learning_rate', lr, step)
 
     #--------------------------------------- eval ---------------------------------------#
 

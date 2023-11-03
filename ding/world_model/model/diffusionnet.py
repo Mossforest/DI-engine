@@ -22,7 +22,6 @@ class DiffusionNet(nn.Module):
         n_timesteps: int,
         background_size: int,
         layer_num: int,
-        learning_rate: float,
         activation: str = 'mish',
         norm_type: str = 'LN'
     ):
@@ -88,8 +87,6 @@ class DiffusionNet(nn.Module):
             build_activation(self.activation),
             nn.Linear(hidden_size * 4, hidden_size)
         )
-        
-        self.optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
     
     def forward(self, x, cond_a, cond_s, t, background):
         t = self.time_mlp(t / self.n_timesteps)
@@ -119,8 +116,3 @@ class DiffusionNet(nn.Module):
         x = self.decoder(x)
         
         return x
-    
-    def train(self, loss):
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()

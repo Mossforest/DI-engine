@@ -28,7 +28,7 @@ main_config = dict(
             state_size=24,
             action_size=4,
             background_size=3,
-            hidden_size=1024,
+            hidden_size=512,
             layer_num=5,
         ),
         learn=dict(
