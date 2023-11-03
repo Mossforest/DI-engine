@@ -16,7 +16,7 @@ main_config = dict(
         collect=dict(
             data_type='hdf5',
             # offline data path
-            data_path='/mnt/nfs/chenxinyan/DI-engine/bipedalwalker_data/friction_known_train.hdf5',
+            data_path='/mnt/nfs/chenxinyan/DI-engine/bipedalwalker_data/bipedalwalker_normal_smoother_collect/processed.hdf5',
         ),
     ),
     world_model=dict(
@@ -28,12 +28,12 @@ main_config = dict(
             state_size=24,
             action_size=4,
             background_size=3,
-            hidden_size=512,
+            hidden_size=1024,
             layer_num=5,
         ),
         learn=dict(
             data_path=None,
-            train_epoch=200,
+            train_epoch=1000,
             batch_size=256,
             learning_rate=3e-4,
         ),

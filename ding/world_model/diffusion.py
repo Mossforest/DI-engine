@@ -157,60 +157,8 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         }
         return loss, info
 
-    # def train(self, env_buffer: IBuffer, envstep: int, train_iter: int):
-    #     r"""
-    #     Overview:
-    #         Train world model using data from env_buffer.
-
-    #     Arguments:
-    #         - env_buffer (:obj:`IBuffer`): the buffer which collects real environment steps
-    #         - envstep (:obj:`int`): the current number of environment steps in real environment
-    #         - train_iter (:obj:`int`): the current number of policy training iterations
-    #     """
-    #     data = env_buffer.sample(env_buffer.count(), train_iter)
-    #     data = default_collate(data)
-    #     data['done'] = data['done'].float()
-    #     data['weight'] = data.get('weight', None)
-    #     obs = data['obs']
-    #     action = data['action']
-    #     reward = data['reward']
-    #     next_obs = data['next_obs']
-    #     background = data['background']
-    #     if len(reward.shape) == 1:
-    #         reward = reward.unsqueeze(1)
-    #     if len(action.shape) == 1:
-    #         action = action.unsqueeze(1)
-    #     # build train samples
-    #     x_start = next_obs
-    #     cond_a = action
-    #     cond_s = obs
-    #     if self._cuda:
-    #         x_start = x_start.cuda()
-    #         cond_a = cond_a.cuda()
-    #         cond_s = cond_s.cuda()
-    #         background = background.cuda()
-        
-    #     # sample and model
-    #     t = torch.randint(0, self.n_timesteps, (self.batch_size,), device=x_start.device).long()
-    #     noise = torch.randn_like(x_start)
-    #     x_noisy = (
-    #         extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start +
-    #         extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
-    #     )
-    #     x_recon = self.model(x_noisy, cond_a, cond_s, t, background)
-    #     assert x_start.shape == x_recon.shape
-    #     loss, logvar = self.loss_fn(x_recon, noise)
-        
-    #     # train with loss
-    #     self.model.train(loss)
-    #     self.last_train_step = envstep
-    #     # log
-    #     if self.tb_logger is not None:
-    #         for k, v in logvar.items():
-    #             self.tb_logger.add_scalar('env_model_step/' + k, v, envstep)
-    
     # model.train with dataset w.o. buffer
-    def train(self, data: dict, step: int, debug=False):
+    def train(self, data: dict, step: int):
         r"""
         Overview:
             Train world model using data from env_buffer.
@@ -227,6 +175,14 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         action = data['action'].to(torch.float32)
         next_obs = data['next_obs'].to(torch.float32)
         background = data['background'].to(torch.float32)
+        
+        # renorm obs of bipedalwalker
+        obs_high = torch.Tensor([3.14, 5., 5., 5., 3.14, 5., 3.14, 5., 5., 3.14, 5., 3.14, 5., 5., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.]).to(torch.float32)
+        obs_low  = torch.Tensor([-3.14, -5., -5., -5., -3.14, -5., -3.14, -5., -0., -3.14, -5., -3.14, -5., -0., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.]).to(torch.float32)
+        # press to [-1, 1]
+        obs = (2 * obs - obs_high - obs_low) / (obs_high - obs_low)
+        next_obs = (2 * next_obs - obs_high - obs_low) / (obs_high - obs_low)
+        
         if len(action.shape) == 1:
             action = action.unsqueeze(1)
         # build train samples
@@ -240,6 +196,8 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             background = background.cuda()
         
         # sample and model
+        if self.batch_size != x_start.shape[0]:
+            return
         t = torch.randint(0, self.n_timesteps, (self.batch_size,), device=x_start.device).long()
         noise = torch.randn_like(x_start)
         x_noisy = (
@@ -249,11 +207,6 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         x_recon = self.model(x_noisy, cond_a, cond_s, t, background)
         assert x_start.shape == x_recon.shape
         loss, logvar = self.loss_fn(x_recon, noise)
-        # if debug:
-        #     print(f'-----------------------TRAIN {step}-----------------------')
-        #     print(f'recon : {x_recon[0]}')
-        #     print(f'noise : {noise[0]}')
-        #     print(f'loss  : {loss.mean()}')
         
         # train with loss
         self.model.train(loss.mean())
@@ -316,6 +269,14 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         action = data['action'].to(torch.float32)
         next_obs = data['next_obs'].to(torch.float32)
         background = data['background'].to(torch.float32)
+        
+        # renorm obs of bipedalwalker
+        obs_high = torch.Tensor([3.14, 5., 5., 5., 3.14, 5., 3.14, 5., 5., 3.14, 5., 3.14, 5., 5., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.]).to(torch.float32)
+        obs_low  = torch.Tensor([-3.14, -5., -5., -5., -3.14, -5., -3.14, -5., -0., -3.14, -5., -3.14, -5., -0., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.]).to(torch.float32)
+        # press to [-1, 1]
+        obs = (2 * obs - obs_high - obs_low) / (obs_high - obs_low)
+        next_obs = (2 * next_obs - obs_high - obs_low) / (obs_high - obs_low)
+        
         if len(action.shape) == 1:
             action = action.unsqueeze(1)
         # build train samples
