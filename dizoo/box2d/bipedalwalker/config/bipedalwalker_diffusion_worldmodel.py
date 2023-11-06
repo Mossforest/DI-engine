@@ -35,7 +35,7 @@ main_config = dict(
             data_path=None,
             train_epoch=1000,
             batch_size=256,
-            learning_rate=3e-4,
+            learning_rate=1e-1,   # 3e-4
         ),
     ),
 )

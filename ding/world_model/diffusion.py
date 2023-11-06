@@ -110,7 +110,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             norm_type='LN',
         )
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self._cfg.learn.learning_rate)
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, 1000*1000)
+        # self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, 1000*1000)
         
         # helper function to register buffer from float64 to float32
         register_buffer = lambda name, val: self.register_buffer(name, val.to(torch.float32))
@@ -184,6 +184,9 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         obs = (2 * obs - obs_high - obs_low) / (obs_high - obs_low)
         next_obs = (2 * next_obs - obs_high - obs_low) / (obs_high - obs_low)
         
+        # no action
+        # action = torch.full(action.shape, 0, dtype=torch.float32)
+        
         if len(action.shape) == 1:
             action = action.unsqueeze(1)
         # build train samples
@@ -209,12 +212,16 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         assert x_start.shape == x_recon.shape
         loss, logvar = self.loss_fn(x_recon, noise)
         
+        
         # train with loss
         self.optimizer.zero_grad()
         loss.mean().backward()
+        if step % 400000 == 0:
+            self.print_grad(step)
+        self.log_grad(step)
         self.optimizer.step()
         lr = self.optimizer.param_groups[0]['lr']
-        self.scheduler.step()
+        # self.scheduler.step()
         # log
         if self.tb_logger is not None and step % 1000 == 0:
             for k, v in logvar.items():
@@ -282,6 +289,9 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         # press to [-1, 1]
         obs = (2 * obs - obs_high - obs_low) / (obs_high - obs_low)
         next_obs = (2 * next_obs - obs_high - obs_low) / (obs_high - obs_low)
+        
+        # no action
+        # action = torch.full(action.shape, 0, dtype=torch.float32)
         
         if len(action.shape) == 1:
             action = action.unsqueeze(1)
@@ -388,3 +398,32 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         """
         raise NotImplementedError
 
+    def print_grad(self, step):
+        print(f'\n\n\n==========================  {step}  ==========================\n')
+        for idx, item in enumerate(self.model.named_parameters()):
+            # h = item[1].register_hook(lambda grad: print(grad[:20]))
+            try:
+                grad = item[1].grad.data
+                print('{0}.{1:40} ==> {2:10.2}, {3:10.2}'.format(idx, item[0], grad.mean(), grad.std()))
+            except AttributeError:
+                continue
+        print(f'\n==========================  {step}  ==========================\n\n\n')
+    
+    def log_grad(self, step):
+        if self.tb_logger is not None and step % 10000 == 0:
+            for idx, item in enumerate(self.model.named_parameters()):
+                # h = item[1].register_hook(lambda grad: print(grad[:20]))
+                try:
+                    grad = item[1].grad.data
+                    self.tb_logger.add_scalar('train_grad/' + item[0], grad.mean(), step)
+                except AttributeError:
+                    continue
+        
+        if self.tb_logger is not None and step % 400000 == 0:
+            for idx, item in enumerate(self.model.named_parameters()):
+                # h = item[1].register_hook(lambda grad: print(grad[:20]))
+                try:
+                    grad = item[1].grad.data
+                    self.tb_logger.add_scalar(f'train_grad/round_{step}', grad.mean(), idx)
+                except AttributeError:
+                    continue

@@ -19,7 +19,7 @@ from ding.utils.data import create_dataset
 def serial_pipeline_worldmodel(
         input_cfg: Union[str, Tuple[dict, dict]],
         seed: int = 0
-) -> 'Policy':
+):
     if isinstance(input_cfg, str):
         cfg, create_cfg = read_config(input_cfg)
     else:
