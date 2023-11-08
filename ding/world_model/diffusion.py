@@ -110,7 +110,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             norm_type='LN',
         )
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self._cfg.learn.learning_rate)
-        # self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, 1000*1000)
+        # self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, 2000000)
         
         # helper function to register buffer from float64 to float32
         register_buffer = lambda name, val: self.register_buffer(name, val.to(torch.float32))
@@ -185,7 +185,9 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         next_obs = (2 * next_obs - obs_high - obs_low) / (obs_high - obs_low)
         
         # no action
-        # action = torch.full(action.shape, 0, dtype=torch.float32)
+        action = torch.full(action.shape, 0, dtype=torch.float32)
+        background = torch.full(background.shape, 0, dtype=torch.float32)
+        next_obs = torch.clone(obs)
         
         if len(action.shape) == 1:
             action = action.unsqueeze(1)
@@ -292,6 +294,8 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         
         # no action
         # action = torch.full(action.shape, 0, dtype=torch.float32)
+        # background = torch.full(background.shape, 0, dtype=torch.float32)
+        # next_obs = torch.clone(obs)
         
         if len(action.shape) == 1:
             action = action.unsqueeze(1)
@@ -404,6 +408,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             # h = item[1].register_hook(lambda grad: print(grad[:20]))
             try:
                 grad = item[1].grad.data
+                grad = grad.abs()
                 print('{0}.{1:40} ==> {2:10.2}, {3:10.2}'.format(idx, item[0], grad.mean(), grad.std()))
             except AttributeError:
                 continue
@@ -415,15 +420,17 @@ class DiffusionWorldModel(WorldModel, nn.Module):
                 # h = item[1].register_hook(lambda grad: print(grad[:20]))
                 try:
                     grad = item[1].grad.data
+                    grad = grad.abs()
                     self.tb_logger.add_scalar('train_grad/' + item[0], grad.mean(), step)
                 except AttributeError:
                     continue
         
-        if self.tb_logger is not None and step % 400000 == 0:
+        if self.tb_logger is not None and step % 50000 == 0:
             for idx, item in enumerate(self.model.named_parameters()):
                 # h = item[1].register_hook(lambda grad: print(grad[:20]))
                 try:
                     grad = item[1].grad.data
+                    grad = grad.abs()
                     self.tb_logger.add_scalar(f'train_grad/round_{step}', grad.mean(), idx)
                 except AttributeError:
                     continue
