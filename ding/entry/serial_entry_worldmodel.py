@@ -113,6 +113,9 @@ def serial_pipeline_worldmodel(
     
     # world_model
     world_model = create_world_model(cfg.world_model, env_fn(cfg.env), tb_logger)
+    
+    # print(f'loading models from {cfg.world_model.load_path}')
+    # world_model.load_model(cfg.world_model.load_path)
 
     print('start training...')
     for epoch in range(cfg.world_model.learn.train_epoch):

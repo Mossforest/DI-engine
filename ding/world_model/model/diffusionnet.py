@@ -57,25 +57,19 @@ class DiffusionNet(nn.Module):
         # 2.1. down groups
         for _ in range(layer_num // 2):
             group = nn.ModuleList([
-                FiLM(hidden_size, state_size + background_size),
                 ResFCTemporalBlock(hidden_size, hidden_size, time_channels=hidden_size, activation=build_activation(activation), norm_type=norm_type),
-                FiLM(hidden_size, action_size + background_size),
                 ResFCTemporalBlock(hidden_size, hidden_size, time_channels=hidden_size, activation=build_activation(activation), norm_type=norm_type),
             ])
             self.down_groups.append(group)
         
         # 2.2. mid group
-        self.mid_film1 = FiLM(hidden_size, state_size + background_size)
         self.mid_resblock1 = ResFCTemporalBlock(hidden_size, hidden_size, time_channels=hidden_size, activation=build_activation(activation), norm_type=norm_type)
-        self.mid_film2 = FiLM(hidden_size, action_size + background_size)
         self.mid_resblock2 = ResFCTemporalBlock(hidden_size, hidden_size, time_channels=hidden_size, activation=build_activation(activation), norm_type=norm_type)
         
         # 2.3. up groups
         for _ in range(layer_num // 2):
             group = nn.ModuleList([
-                FiLM(hidden_size * 2, state_size + background_size),
                 ResFCTemporalBlock(hidden_size * 2, hidden_size, time_channels=hidden_size, activation=build_activation(activation), norm_type=norm_type),
-                FiLM(hidden_size, action_size + background_size),
                 ResFCTemporalBlock(hidden_size, hidden_size, time_channels=hidden_size, activation=build_activation(activation), norm_type=norm_type),
             ])
             self.up_groups.append(group)
@@ -94,27 +88,17 @@ class DiffusionNet(nn.Module):
         
         x = self.encoder(x)
         
-        for film1, resblock1, film2, resblock2 in self.down_groups:
-            try:
-                x = film1(x, torch.cat((cond_s, background), dim=1))
-            except RuntimeError:
-                print(f'{cond_s.device}, {background.device}, {x.device}')
-                exit()
+        for resblock1, resblock2 in self.down_groups:
             x = resblock1(x, t)
-            x = film2(x, torch.cat((cond_a, background), dim=1))
             x = resblock2(x, t)
             crop_store.append(x)
         
-        x = self.mid_film1(x, torch.cat((cond_s, background), dim=1))
         x = self.mid_resblock1(x, t)
-        x = self.mid_film2(x, torch.cat((cond_a, background), dim=1))
         x = self.mid_resblock2(x, t)
         
-        for film1, resblock1, film2, resblock2 in self.up_groups:
+        for resblock1, resblock2 in self.up_groups:
             x = torch.cat((x, crop_store.pop()), dim=1)
-            x = film1(x, torch.cat((cond_s, background), dim=1))
             x = resblock1(x, t)
-            x = film2(x, torch.cat((cond_a, background), dim=1))
             x = resblock2(x, t)
         
         x = self.decoder(x)

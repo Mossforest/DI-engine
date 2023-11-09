@@ -38,6 +38,7 @@ main_config = dict(
             batch_size=256,
             learning_rate=3e-4,
         ),
+        load_path='/mnt/nfs/chenxinyan/DI-engine/bipedalwalker_diffusion_worldmodel_seed10_231109_104249/model/epoch10',
     ),
 )
 
