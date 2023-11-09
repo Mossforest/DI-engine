@@ -16,7 +16,8 @@ main_config = dict(
         collect=dict(
             data_type='hdf5',
             # offline data path
-            data_path='/mnt/nfs/chenxinyan/DI-engine/bipedalwalker_data/bipedalwalker_normal_smoother_collect/processed.hdf5',
+            train_data_path='/mnt/nfs/chenxinyan/DI-engine/bipedalwalker_data/bipedalwalker_normal_smoother_collect/processed_train.hdf5',
+            eval_data_path='/mnt/nfs/chenxinyan/DI-engine/bipedalwalker_data/bipedalwalker_normal_smoother_collect/processed_eval.hdf5',
         ),
     ),
     world_model=dict(

@@ -95,7 +95,11 @@ class DiffusionNet(nn.Module):
         x = self.encoder(x)
         
         for film1, resblock1, film2, resblock2 in self.down_groups:
-            x = film1(x, torch.cat((cond_s, background), dim=1))
+            try:
+                x = film1(x, torch.cat((cond_s, background), dim=1))
+            except RuntimeError:
+                print(f'{cond_s.device}, {background.device}, {x.device}')
+                exit()
             x = resblock1(x, t)
             x = film2(x, torch.cat((cond_a, background), dim=1))
             x = resblock2(x, t)

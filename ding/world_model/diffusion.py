@@ -34,6 +34,12 @@ def extract(a, t, x_shape):
     out = a.gather(-1, t)
     return out.reshape(b, *((1,) * (len(x_shape) - 1)))
 
+def add_dict(tmp_dict, name, v):
+    if name in tmp_dict:
+        tmp_dict[name].append(v)
+    else:
+        tmp_dict[name] = [v]
+
 @WORLD_MODEL_REGISTRY.register('diffusion')
 class DiffusionWorldModel(WorldModel, nn.Module):
     r"""
@@ -77,6 +83,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         
         self.env = env
         self.tb_logger = tb_logger
+        self.log_dict = {}
         
         # diffusion schedule
         self.n_timesteps = self._cfg.n_timesteps
@@ -110,7 +117,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             norm_type='LN',
         )
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self._cfg.learn.learning_rate)
-        # self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, 2000000)
+        # self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, self._cfg.learn.train_epoch)
         
         # helper function to register buffer from float64 to float32
         register_buffer = lambda name, val: self.register_buffer(name, val.to(torch.float32))
@@ -159,7 +166,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         return loss, info
 
     # model.train with dataset w.o. buffer
-    def train(self, data: dict, step: int):
+    def train(self, data: dict, epoch: int, step: int):
         r"""
         Overview:
             Train world model using data from env_buffer.
@@ -176,13 +183,6 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         action = data['action'].to(torch.float32)
         next_obs = data['next_obs'].to(torch.float32)
         background = data['background'].to(torch.float32)
-        
-        # renorm obs of bipedalwalker
-        obs_high = torch.Tensor([3.14, 5., 5., 5., 3.14, 5., 3.14, 5., 5., 3.14, 5., 3.14, 5., 5., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.]).to(torch.float32)
-        obs_low  = torch.Tensor([-3.14, -5., -5., -5., -3.14, -5., -3.14, -5., -0., -3.14, -5., -3.14, -5., -0., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.]).to(torch.float32)
-        # press to [-1, 1]
-        obs = (2 * obs - obs_high - obs_low) / (obs_high - obs_low)
-        next_obs = (2 * next_obs - obs_high - obs_low) / (obs_high - obs_low)
         
         # no action
         action = torch.full(action.shape, 0, dtype=torch.float32)
@@ -218,17 +218,15 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         # train with loss
         self.optimizer.zero_grad()
         loss.mean().backward()
-        if step % 400000 == 0:
-            self.print_grad(step)
-        self.log_grad(step)
+        self.log_grad(epoch, step)
         self.optimizer.step()
         lr = self.optimizer.param_groups[0]['lr']
-        # self.scheduler.step()
         # log
-        if self.tb_logger is not None and step % 1000 == 0:
+        if self.tb_logger is not None:
             for k, v in logvar.items():
-                self.tb_logger.add_scalar('train_model/' + k, v, step)
-            self.tb_logger.add_scalar('train_model/learning_rate', lr, step)
+                name = 'train_model' + k
+                add_dict(self.log_dict, name, v)
+            add_dict(self.log_dict, 'train_model/learning_rate', lr)
 
     #--------------------------------------- eval ---------------------------------------#
 
@@ -285,13 +283,6 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         next_obs = data['next_obs'].to(torch.float32)
         background = data['background'].to(torch.float32)
         
-        # renorm obs of bipedalwalker
-        obs_high = torch.Tensor([3.14, 5., 5., 5., 3.14, 5., 3.14, 5., 5., 3.14, 5., 3.14, 5., 5., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.]).to(torch.float32)
-        obs_low  = torch.Tensor([-3.14, -5., -5., -5., -3.14, -5., -3.14, -5., -0., -3.14, -5., -3.14, -5., -0., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.]).to(torch.float32)
-        # press to [-1, 1]
-        obs = (2 * obs - obs_high - obs_low) / (obs_high - obs_low)
-        next_obs = (2 * next_obs - obs_high - obs_low) / (obs_high - obs_low)
-        
         # no action
         # action = torch.full(action.shape, 0, dtype=torch.float32)
         # background = torch.full(background.shape, 0, dtype=torch.float32)
@@ -308,6 +299,9 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             cond_a = cond_a.cuda()
             cond_s = cond_s.cuda()
             background = background.cuda()
+            
+        if self.batch_size != x_start.shape[0]:
+            return
         
         # evaluation
         with torch.no_grad():
@@ -317,12 +311,11 @@ class DiffusionWorldModel(WorldModel, nn.Module):
                 x = self.p_sample_fn(x, cond_a, cond_s, t, background)
             x_recon_overall = x
             loss, logvar = self.loss_fn(x_recon_overall, x_start)
-        self.last_train_step = step
         # log
-        print(f'eval')
         if self.tb_logger is not None:
             for k, v in logvar.items():
-                self.tb_logger.add_scalar('eval_model/overall_' + k, v, step)
+                name = 'eval_model/overall_' + k
+                add_dict(self.log_dict, name, v)
         
         # [v0.4] new eval 1
         with torch.no_grad():
@@ -342,7 +335,8 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             loss, logvar = self.loss_fn(noise_recon, noise)
         if self.tb_logger is not None:
             for k, v in logvar.items():
-                self.tb_logger.add_scalar('eval_model/noise_' + k, v, step)
+                name = 'eval_model/noise_' + k
+                add_dict(self.log_dict, name, v)
         
         # [v0.4] new eval 2
         with torch.no_grad():
@@ -354,14 +348,16 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             loss, logvar = self.loss_fn(x_recon_fixgauss, x_start)
         if self.tb_logger is not None:
             for k, v in logvar.items():
-                self.tb_logger.add_scalar('eval_model/fixgauss_' + k, v, step)
+                name = 'eval_model/fixgauss_' + k
+                add_dict(self.log_dict, name, v)
         
         # [v0.4] new eval 3
         with torch.no_grad():
             loss, logvar = self.loss_fn(x_recon_fixgauss, x_recon_overall)
         if self.tb_logger is not None:
             for k, v in logvar.items():
-                self.tb_logger.add_scalar('eval_model/fixornot' + k, v, step)
+                name = 'eval_model/fixornot_' + k
+                add_dict(self.log_dict, name, v)
         
         # [v0.4] new eval 4
         with torch.no_grad():
@@ -373,7 +369,8 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             loss, logvar = self.loss_fn(x_recon_overall, x_recon_nofix)
         if self.tb_logger is not None:
             for k, v in logvar.items():
-                self.tb_logger.add_scalar('eval_model/nofix_' + k, v, step)
+                name = 'eval_model/nofix_' + k
+                add_dict(self.log_dict, name, v)
 
     def step(self, obs: Tensor, action: Tensor):
         r"""
@@ -401,6 +398,12 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             - done:     [B, ]
         """
         raise NotImplementedError
+    
+    def epoch_log(self, epoch):
+        for k in self.log_dict:
+            v = torch.Tensor(self.log_dict[k])
+            self.tb_logger.add_scalar(k, v.mean(), epoch)
+        self.log_dict = {}
 
     def print_grad(self, step):
         print(f'\n\n\n==========================  {step}  ==========================\n')
@@ -414,23 +417,29 @@ class DiffusionWorldModel(WorldModel, nn.Module):
                 continue
         print(f'\n==========================  {step}  ==========================\n\n\n')
     
-    def log_grad(self, step):
-        if self.tb_logger is not None and step % 10000 == 0:
+    def log_grad(self, epoch, step):
+        if self.tb_logger is not None and step % 500 == 0:
             for idx, item in enumerate(self.model.named_parameters()):
-                # h = item[1].register_hook(lambda grad: print(grad[:20]))
                 try:
                     grad = item[1].grad.data
                     grad = grad.abs()
-                    self.tb_logger.add_scalar('train_grad/' + item[0], grad.mean(), step)
+                    name = 'train_grad/' + item[0]
+                    add_dict(self.log_dict, name, grad.mean())
                 except AttributeError:
                     continue
         
-        if self.tb_logger is not None and step % 50000 == 0:
+        if self.tb_logger is not None and epoch % 50 == 0 and step % 500 == 0:
             for idx, item in enumerate(self.model.named_parameters()):
                 # h = item[1].register_hook(lambda grad: print(grad[:20]))
                 try:
                     grad = item[1].grad.data
                     grad = grad.abs()
-                    self.tb_logger.add_scalar(f'train_grad/round_{step}', grad.mean(), idx)
+                    self.tb_logger.add_scalar(f'train_grad/epoch_{epoch}', grad.mean(), idx)
                 except AttributeError:
                     continue
+    
+    def save_model(self, file):
+        torch.save(self.state_dict(), file)
+    
+    def load_model(self, file):
+        self.load_state_dict(torch.load(file))

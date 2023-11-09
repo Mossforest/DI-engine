@@ -1,12 +1,14 @@
-from typing import Union, Optional, List, Any, Tuple
+from typing import Union, Tuple, Dict
 import os
 import time
+import numpy as np
 import random
 import torch
+import h5py
 from functools import partial
 from tensorboardX import SummaryWriter
 from copy import deepcopy
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 from ding.envs import get_vec_env_setting, create_env_manager
 # from ding.worker import BaseLearner, InteractionSerialEvaluator
@@ -14,6 +16,60 @@ from ding.config import read_config, compile_config
 from ding.world_model import create_world_model
 from ding.utils import set_pkg_seed
 from ding.utils.data import create_dataset
+
+class HDF5Dataset(Dataset):
+
+    def __init__(self, data_path):
+        # if 'dataset' in cfg:
+        #     self.context_len = cfg.dataset.context_len
+        # else:
+        #     self.context_len = 0
+        data = h5py.File(data_path, 'r')
+        self._load_data(data)
+        self._norm_data()
+        self._cal_statistics()
+
+    def __len__(self) -> int:
+        return len(self._data['obs'])
+
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        return {k: self._data[k][idx] for k in self._data.keys()}
+
+    def _load_data(self, dataset: Dict[str, np.ndarray]) -> None:
+        self._data = {}
+        for k in dataset.keys():
+            self._data[k] = dataset[k][:]
+
+    def _norm_data(self):
+        # renorm obs of bipedalwalker
+        obs_high = np.array([3.14, 5., 5., 5., 3.14, 5., 3.14, 5., 5., 3.14, 5., 3.14, 5., 5., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.])
+        obs_low  = np.array([-3.14, -5., -5., -5., -3.14, -5., -3.14, -5., -0., -3.14, -5., -3.14, -5., -0., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.])
+        # press to [-1, 1]
+        self._data['obs'] = (2 * self._data['obs'] - obs_high - obs_low) / (obs_high - obs_low)
+        self._data['next_obs'] = (2 * self._data['next_obs'] - obs_high - obs_low) / (obs_high - obs_low)
+
+    def _cal_statistics(self, eps=1e-3):
+        self._mean = self._data['obs'].mean(0)
+        self._std = self._data['obs'].std(0) + eps
+        action_max = self._data['action'].max(0)
+        action_min = self._data['action'].min(0)
+        buffer = 0.05 * (action_max - action_min)
+        action_max = action_max.astype(float) + buffer
+        action_min = action_max.astype(float) - buffer
+        self._action_bounds = np.stack([action_min, action_max], axis=0)
+
+    @property
+    def mean(self):
+        return self._mean
+
+    @property
+    def std(self):
+        return self._std
+
+    @property
+    def action_bounds(self) -> np.ndarray:
+        return self._action_bounds
+
 
 
 def serial_pipeline_worldmodel(
@@ -26,25 +82,31 @@ def serial_pipeline_worldmodel(
         cfg, create_cfg = deepcopy(input_cfg)
     # create_cfg.world_model.type = create_cfg.world_model.type + '_command'
     cfg = compile_config(cfg, seed=seed, auto=True, create_cfg=create_cfg)
-
-    dataset = create_dataset(cfg)
-    sampler, shuffle = None, True
-    dataloader = DataLoader(
-        dataset,
+    
+    print(f'============== exp name: {cfg.exp_name}')
+    
+    # dataset
+    train_dataset = HDF5Dataset(cfg.policy.collect.train_data_path)
+    eval_dataset = HDF5Dataset(cfg.policy.collect.eval_data_path)
+    train_dataloader = DataLoader(
+        train_dataset,
         cfg.world_model.learn.batch_size,
-        shuffle=shuffle,
-        sampler=sampler,
+        shuffle=True,
+        sampler=None,
+        collate_fn=lambda x: x,
+        pin_memory=cfg.world_model.cuda,
+    )
+    eval_dataloader = DataLoader(
+        eval_dataset,
+        cfg.world_model.learn.batch_size,
+        shuffle=False,
+        sampler=None,
         collate_fn=lambda x: x,
         pin_memory=cfg.world_model.cuda,
     )
     tb_logger = SummaryWriter(os.path.join('./{}/log/'.format(cfg.exp_name), 'serial'))
     
     # Env
-    try:
-        if cfg.env.norm_obs.use_norm and cfg.env.norm_obs.offline_stats.use_offline_stats:
-            cfg.env.norm_obs.offline_stats.update({'mean': dataset.mean, 'std': dataset.std})
-    except (KeyError, AttributeError):
-        pass
     env_fn, _, _ = get_vec_env_setting(cfg.env, collect=False, eval_=False)
     # Random seed
     set_pkg_seed(cfg.seed, use_cuda=cfg.world_model.cuda)
@@ -52,46 +114,32 @@ def serial_pipeline_worldmodel(
     # world_model
     world_model = create_world_model(cfg.world_model, env_fn(cfg.env), tb_logger)
 
-    # evaluator = InteractionSerialEvaluator(
-    #     cfg.policy.eval.evaluator, evaluator_env, policy.eval_mode, tb_logger, exp_name=cfg.exp_name
-    # )
-    # ==========
-    # Main loop
-    # ==========
-    # Learner's before_run hook.
-    stop = False
-    
-    i = 0
-    t = time.time()
-    printed = False
-    eval_data = None
-    batch_num = None
     print('start training...')
     for epoch in range(cfg.world_model.learn.train_epoch):
-        if printed:
-            kk = random.randint(0, batch_num-1)
-            i0 = i
+        t1 = time.time()
+        for idx, train_data in enumerate(train_dataloader):
+            world_model.train(train_data, epoch, idx)
+            if idx % 500 == 0:
+                print(f'finish train {idx} / {len(train_dataloader)}')
+        # world_model.scheduler.step()
         
-        for train_data in dataloader:
-            world_model.train(train_data, i)
-            i += 1
-            if printed and i - i0 == kk:
-            # if i%100==0:
-                eval_data = train_data.copy()
-                # world_model.eval(eval_data, epoch)
-        
-        if printed:
-            world_model.eval(eval_data, epoch)
-        if not printed:
-            print(f'---- One epoch has {i} batch, with time {time.time() - t} sec. ----')
-            batch_num = i
-            printed = True
-        
-        print(f'finished: epoch {epoch}')
+        if epoch % 10 == 0:
+            for idx, eval_data in enumerate(eval_dataloader):
+                if idx > 40:  # TODO: eval is too slow, speed up
+                    break
+                world_model.eval(eval_data, epoch)
+                if idx % 100 == 0:
+                    print(f'finish eval {idx} / {len(eval_dataloader)}')
+        world_model.epoch_log(epoch)
 
-        # # Evaluate policy at most once per epoch.
-        # if evaluator.should_eval(learner.train_iter):
-        #     stop, reward = evaluator.eval(learner.save_checkpoint, learner.train_iter)
+        if epoch % 10 == 0:
+            path = f'{cfg.exp_name}/model'
+            if not os.path.exists(path):
+                os.mkdir(path)
+            world_model.save_model(f'{path}/epoch{epoch}')
+        
+        print(f'============== exp name: {cfg.exp_name}')
+        print(f'finished epoch {epoch}, {time.time() - t1:.2f} sec.')
 
-    # print('final reward is: {}'.format(reward))
-    return world_model, stop
+    print('Done.')
+    return world_model
