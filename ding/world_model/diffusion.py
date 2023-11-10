@@ -186,10 +186,10 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         background = data['background'].to(torch.float32)
         
         # no action
-        action = torch.full(action.shape, 0, dtype=torch.float32)
-        background = torch.full(background.shape, 0, dtype=torch.float32)
-        next_obs = torch.clone(obs)
-        obs = torch.full(obs.shape, 0, dtype=torch.float32)
+        # action = torch.full(action.shape, 0, dtype=torch.float32)
+        # background = torch.full(background.shape, 0, dtype=torch.float32)
+        # next_obs = torch.clone(obs)
+        # obs = torch.full(obs.shape, 0, dtype=torch.float32)
         
         if len(action.shape) == 1:
             action = action.unsqueeze(1)
@@ -286,10 +286,10 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         background = data['background'].to(torch.float32)
         
         # no action
-        action = torch.full(action.shape, 0, dtype=torch.float32)
-        background = torch.full(background.shape, 0, dtype=torch.float32)
-        next_obs = torch.clone(obs)
-        obs = torch.full(obs.shape, 0, dtype=torch.float32)
+        # action = torch.full(action.shape, 0, dtype=torch.float32)
+        # background = torch.full(background.shape, 0, dtype=torch.float32)
+        # next_obs = torch.clone(obs)
+        # obs = torch.full(obs.shape, 0, dtype=torch.float32)
         
         if len(action.shape) == 1:
             action = action.unsqueeze(1)
