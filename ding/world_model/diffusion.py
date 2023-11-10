@@ -84,6 +84,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         self.env = env
         self.tb_logger = tb_logger
         self.log_dict = {}
+        self.grad_dict = {}
         
         # diffusion schedule
         self.n_timesteps = self._cfg.n_timesteps
@@ -188,6 +189,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         action = torch.full(action.shape, 0, dtype=torch.float32)
         background = torch.full(background.shape, 0, dtype=torch.float32)
         next_obs = torch.clone(obs)
+        obs = torch.full(obs.shape, 0, dtype=torch.float32)
         
         if len(action.shape) == 1:
             action = action.unsqueeze(1)
@@ -284,9 +286,10 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         background = data['background'].to(torch.float32)
         
         # no action
-        # action = torch.full(action.shape, 0, dtype=torch.float32)
-        # background = torch.full(background.shape, 0, dtype=torch.float32)
-        # next_obs = torch.clone(obs)
+        action = torch.full(action.shape, 0, dtype=torch.float32)
+        background = torch.full(background.shape, 0, dtype=torch.float32)
+        next_obs = torch.clone(obs)
+        obs = torch.full(obs.shape, 0, dtype=torch.float32)
         
         if len(action.shape) == 1:
             action = action.unsqueeze(1)
@@ -404,6 +407,10 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             v = torch.Tensor(self.log_dict[k])
             self.tb_logger.add_scalar(k, v.mean(), epoch)
         self.log_dict = {}
+        for idx in self.grad_dict:
+            v = torch.Tensor(self.grad_dict[idx])
+            self.tb_logger.add_scalar(f'train_grad/epoch_{epoch}', v.mean(), idx)
+        self.grad_dict = {}
 
     def print_grad(self, step):
         print(f'\n\n\n==========================  {step}  ==========================\n')
@@ -428,13 +435,13 @@ class DiffusionWorldModel(WorldModel, nn.Module):
                 except AttributeError:
                     continue
         
-        if self.tb_logger is not None and epoch % 50 == 0 and step % 500 == 0:
+        if self.tb_logger is not None and epoch % 50 == 0 and step == 10:
             for idx, item in enumerate(self.model.named_parameters()):
                 # h = item[1].register_hook(lambda grad: print(grad[:20]))
                 try:
                     grad = item[1].grad.data
                     grad = grad.abs()
-                    self.tb_logger.add_scalar(f'train_grad/epoch_{epoch}', grad.mean(), idx)
+                    add_dict(self.grad_dict, idx, grad.mean())
                 except AttributeError:
                     continue
     
