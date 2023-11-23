@@ -3,7 +3,8 @@
 from easydict import EasyDict
 
 main_config = dict(
-    exp_name="bipedalwalker_diffusion_worldmodel_seed0",
+    # exp_name="bipedalwalker_diffusion_worldmodel_seed0",
+    exp_name="bipedalwalker_vae_seed0",
     env=dict(
         env_name='BipedalWalker-v3',
         act_scale=True,
@@ -55,8 +56,8 @@ create_config = dict(
         import_names=['ding.policy.cql'],
     ),
     world_model=dict(
-        type='diffusion',
-        import_names=['ding.world_model.diffusion'],
+        type='diffusion_vae',
+        import_names=['ding.world_model.diffusion_vae'],
     ),
 )
 create_config = EasyDict(create_config)

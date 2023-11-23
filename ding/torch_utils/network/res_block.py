@@ -188,11 +188,11 @@ class ResFCTemporalBlock(nn.Module):
             self.fc1 = fc_block(in_channels, out_channels, activation=self.act, norm_type=norm_type)
             self.fc2 = fc_block(in_channels, out_channels, activation=None, norm_type=norm_type)
         
-        self.time_mlp = nn.Sequential(
-            self.act,
-            nn.Linear(time_channels, out_channels),
-            # TODO: Rearrange('batch t -> batch t 1'),
-        )
+        # self.time_mlp = nn.Sequential(
+        #     self.act,
+        #     nn.Linear(time_channels, out_channels),
+        #     # TODO: Rearrange('batch t -> batch t 1'),
+        # )
         self.residual_conv = nn.Linear(in_channels, out_channels) \
             if in_channels != out_channels else nn.Identity()
 
@@ -207,7 +207,7 @@ class ResFCTemporalBlock(nn.Module):
             - x (:obj:`torch.Tensor`): The resblock output tensor.
         """
         identity = x
-        x = self.fc1(x) + self.time_mlp(t)
+        x = self.fc1(x)  # + self.time_mlp(t)
         x = self.fc2(x)
         x = self.act(x + self.residual_conv(identity))
         if self.dropout is not None:
