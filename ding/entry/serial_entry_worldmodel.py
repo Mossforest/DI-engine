@@ -94,16 +94,16 @@ def serial_pipeline_worldmodel(
         shuffle=True,
         sampler=None,
         collate_fn=lambda x: x,
-        pin_memory=cfg.world_model.cuda,
+        drop_last=True,
     )
     eval_dataloader = DataLoader(
         eval_dataset,
-        cfg.world_model.learn.batch_size,
+        cfg.world_model.test.batch_size,
         shuffle=False,
         sampler=None,
         collate_fn=lambda x: x,
-        pin_memory=cfg.world_model.cuda,
-    )
+        drop_last=True,
+    )   
     tb_logger = SummaryWriter(os.path.join('./{}/log/'.format(cfg.exp_name), 'serial'))
     
     # Env
@@ -119,17 +119,12 @@ def serial_pipeline_worldmodel(
         t1 = time.time()
         for idx, train_data in enumerate(train_dataloader):
             world_model.train(train_data, epoch, idx)
-            if idx % 500 == 0:
-                print(f'finish train {idx} / {len(train_dataloader)}')
         # world_model.scheduler.step()
         
-        if epoch % 10 == 0:
+        if epoch % (cfg.world_model.learn.train_epoch // cfg.world_model.test.test_epoch) == 0:
             for idx, eval_data in enumerate(eval_dataloader):
-                if idx > 40:  # TODO: eval is too slow, speed up
-                    break
                 world_model.eval(eval_data, epoch)
-                if idx % 100 == 0:
-                    print(f'finish eval {idx} / {len(eval_dataloader)}')
+                print(f'finish eval in epoch {epoch}')
         world_model.epoch_log(epoch)
 
         if epoch % 10 == 0:

@@ -39,6 +39,11 @@ main_config = dict(
             batch_size=256,
             learning_rate=3e-4,
         ),
+        test=dict(
+            data_path=None,
+            test_epoch=100,
+            batch_size=10000,
+        ),
     ),
 )
 

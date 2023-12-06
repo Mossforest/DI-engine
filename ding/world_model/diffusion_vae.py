@@ -118,8 +118,6 @@ class DiffusionVAEModel(WorldModel, nn.Module):
             obs = obs.cuda()
         
         # sample and model
-        if self.batch_size != obs.shape[0]:
-            return
         x_recon, miu, log_sigma = self.model(obs)
         assert obs.shape == x_recon.shape
         logvar = self.model.loss_function(obs, x_recon, miu, log_sigma)
@@ -158,11 +156,10 @@ class DiffusionVAEModel(WorldModel, nn.Module):
             obs = obs.cuda()
         
         # sample and model
-        if self.batch_size != obs.shape[0]:
-            return
-        x_recon, miu, log_sigma = self.model(obs)
-        assert obs.shape == x_recon.shape
-        logvar = self.model.loss_function(obs, x_recon, miu, log_sigma)
+        with torch.no_grad():
+            x_recon, miu, log_sigma = self.model(obs)
+            assert obs.shape == x_recon.shape
+            logvar = self.model.loss_function(obs, x_recon, miu, log_sigma)
         
         # log
         if self.tb_logger is not None:
