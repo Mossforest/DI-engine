@@ -183,8 +183,14 @@ class VectorEvalMonitor(object):
             Convert list of videos into [N, T, C, H, W] tensor, containing
             worst, median, best evaluation trajectories for video logging.
         """
+        guide = [400, 600]
         videos = sum([list(v) for v in self._video.values()], [])
-        videos = [np.transpose(np.stack(video, 0), [0, 3, 1, 2]) for video in videos]
+        try:
+            videos = [np.transpose(np.stack(video, 0), [0, 3, 1, 2]) for video in videos]
+        except ValueError:
+            for idx, k in enumerate(videos[0]):
+                videos[0][idx] = np.pad(k, ((0, guide[0]-k.shape[0]), (0, guide[1]-k.shape[1]), (0, 0)), 'constant',constant_values = (0,0))
+            videos = [np.transpose(np.stack(video, 0), [0, 3, 1, 2]) for video in videos]
         idxs = self._select_idx()
         videos = [videos[idx] for idx in idxs]
         # pad videos to the same length with last frames

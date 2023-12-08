@@ -167,10 +167,10 @@ class DiffusionVAEModel(WorldModel, nn.Module):
                 name = 'eval_model/' + k
                 add_dict(self.log_dict, name, v)
 
-    def step(self, obs: Tensor, action: Tensor):
+    def step(self, obs: Tensor):
         r"""
         Overview:
-            Take one step in world model.
+            get the reconciled state
 
         Arguments:
             - obs (:obj:`torch.Tensor`): current observations :math:`S_t`
@@ -192,7 +192,17 @@ class DiffusionVAEModel(WorldModel, nn.Module):
             - next_obs: [B, O]
             - done:     [B, ]
         """
-        raise NotImplementedError
+        obs = obs.to(torch.float32)
+        # build train samples
+        if self._cuda:
+            obs = obs.cuda()
+        
+        # sample and model
+        with torch.no_grad():
+            x_recon, miu, log_sigma = self.model(obs)
+            logvar = self.model.loss_function(obs, x_recon, miu, log_sigma)
+        
+        return x_recon, logvar
     
     def epoch_log(self, epoch):
         for k in self.log_dict:
