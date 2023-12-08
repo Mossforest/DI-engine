@@ -69,6 +69,11 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             batch_size=256,
             learning_rate=3e-4,
         ),
+        test=dict(
+            data_path=None,
+            test_epoch=100,
+            batch_size=10000,
+        ),
     )
 
     def __init__(self, cfg: dict, env: BaseEnv, tb_logger: 'SummaryWriter'):  # noqa
@@ -80,6 +85,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         self.hidden_size = self._cfg.model.hidden_size
         self.background_size = self._cfg.model.background_size
         self.batch_size = self._cfg.learn.batch_size
+        self.test_batch_size = self._cfg.test.batch_size
         
         self.env = env
         self.tb_logger = tb_logger
@@ -305,7 +311,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         with torch.no_grad():
             x = torch.randn(x_start.shape, device=x_start.device)
             for i in reversed(range(0, self.n_timesteps)):
-                t = torch.full((self.batch_size,), i, dtype=torch.long, device=x_start.device)
+                t = torch.full((self.test_batch_size,), i, dtype=torch.long, device=x_start.device)
                 x = self.p_sample_fn(x, cond_a, cond_s, t, background)
             x_recon_overall = x
             loss, logvar = self.loss_fn(x_recon_overall, x_start)
@@ -317,8 +323,8 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         
         # [v0.4] new eval 1
         with torch.no_grad():
-            t = torch.randint(0, self.n_timesteps, (self.batch_size,), device=x_start.device).long()
-            t_end = torch.full((self.batch_size,), self.n_timesteps - 1, dtype=torch.long, device=x_start.device)
+            t = torch.randint(0, self.n_timesteps, (self.test_batch_size,), device=x_start.device).long()
+            t_end = torch.full((self.test_batch_size,), self.n_timesteps - 1, dtype=torch.long, device=x_start.device)
             noise = torch.randn_like(x_start)
             x_noisy = (
                 extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start +
@@ -340,7 +346,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         with torch.no_grad():
             x = x_noisy_end
             for i in reversed(range(0, self.n_timesteps)):
-                t = torch.full((self.batch_size,), i, dtype=torch.long, device=x_start.device)
+                t = torch.full((self.test_batch_size,), i, dtype=torch.long, device=x_start.device)
                 x = self.p_sample_fn(x, cond_a, cond_s, t, background)
             x_recon_fixgauss = x
             loss, logvar = self.loss_fn(x_recon_fixgauss, x_start)
@@ -361,7 +367,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         with torch.no_grad():
             x = torch.randn(x_start.shape, device=x_start.device)
             for i in reversed(range(0, self.n_timesteps)):
-                t = torch.full((self.batch_size,), i, dtype=torch.long, device=x_start.device)
+                t = torch.full((self.test_batch_size,), i, dtype=torch.long, device=x_start.device)
                 x = self.p_sample_fn(x, cond_a, cond_s, t, background)
             x_recon_nofix = x
             loss, logvar = self.loss_fn(x_recon_overall, x_recon_nofix)
