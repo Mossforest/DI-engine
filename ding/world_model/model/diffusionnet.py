@@ -22,7 +22,7 @@ class DiffusionNet(nn.Module):
         n_timesteps: int,
         background_size: int,
         layer_num: int,
-        activation: str = 'mish',
+        activation: str = 'tanh',
         norm_type: str = 'LN'
     ):
         super().__init__()

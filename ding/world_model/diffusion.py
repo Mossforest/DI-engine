@@ -114,7 +114,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             n_timesteps=self.n_timesteps,
             background_size=self.background_size,
             layer_num=self._cfg.model.layer_num,
-            activation='mish',
+            activation='tanh',
             norm_type='LN',
         )
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self._cfg.learn.learning_rate)
@@ -204,8 +204,6 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             background = background.cuda()
         
         # sample and model
-        if self.batch_size != x_start.shape[0]:
-            return
         t = torch.randint(0, self.n_timesteps, (self.batch_size,), device=x_start.device).long()
         noise = torch.randn_like(x_start)
         x_noisy = (
@@ -302,9 +300,6 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             cond_a = cond_a.cuda()
             cond_s = cond_s.cuda()
             background = background.cuda()
-            
-        if self.batch_size != x_start.shape[0]:
-            return
         
         # evaluation
         with torch.no_grad():
