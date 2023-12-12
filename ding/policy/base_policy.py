@@ -151,6 +151,10 @@ class Policy(ABC):
     @property
     def cfg(self) -> EasyDict:
         return self._cfg
+    
+    @property
+    def device(self):
+        return self._device
 
     @abstractmethod
     def _init_learn(self) -> None:

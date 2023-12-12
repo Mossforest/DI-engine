@@ -7,7 +7,7 @@ import torch
 import treetensor.torch as ttorch
 import h5py
 import cv2
-import cv2
+import matplotlib.pyplot as plt
 from PIL import Image
 from functools import partial
 from tensorboardX import SummaryWriter
@@ -80,8 +80,8 @@ class HDF5Dataset(Dataset):
 
 def norm_data(obs, env='bipedalwalker'):
     if env == 'bipedalwalker':
-        obs_high = np.array([3.14, 5., 5., 5., 3.14, 5., 3.14, 5., 5., 3.14, 5., 3.14, 5., 5., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.])
-        obs_low  = np.array([-3.14, -5., -5., -5., -3.14, -5., -3.14, -5., -0., -3.14, -5., -3.14, -5., -0., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.])
+        obs_high = torch.Tensor([3.14, 5., 5., 5., 3.14, 5., 3.14, 5., 5., 3.14, 5., 3.14, 5., 5., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.]).to(obs.device)
+        obs_low  = torch.Tensor([-3.14, -5., -5., -5., -3.14, -5., -3.14, -5., -0., -3.14, -5., -3.14, -5., -0., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.]).to(obs.device)
         # press to [-1, 1]
         obs = (2 * obs - obs_high - obs_low) / (obs_high - obs_low)
         return obs
@@ -142,6 +142,7 @@ def serial_pipeline(
     
     print('start eval...')
     for _ in range(cfg.policy.eval.test_epoch):
+        track_time = 0
         # 1. real world env
         if evaluator_env.closed:
             evaluator_env.launch()
@@ -152,7 +153,7 @@ def serial_pipeline(
 
         while not eval_monitor.is_finished():
             obs = torch.as_tensor(evaluator_env.ready_obs[0]).to(dtype=torch.float32)
-            vae_loss_var['real_obs'].append(obs)
+            vae_loss_var['real_obs'].append(obs.cpu())
             inference_output = policy.forward({0: obs})
             if cfg.env.render:
                 eval_monitor.update_video(evaluator_env.ready_imgs)
@@ -166,6 +167,7 @@ def serial_pipeline(
                     eval_monitor.update_reward(env_id, reward)
                     if 'episode_info' in timestep.info:
                         eval_monitor.update_info(env_id, timestep.info)
+            track_time += 1
         
         episode_return_real = eval_monitor.get_episode_return()
         # episode_return_min = np.min(episode_return)
@@ -191,23 +193,34 @@ def serial_pipeline(
                 f_img = Image.fromarray(img)
                 f_out = np.array(f_img, dtype=np.uint8)
                 assert (f_out.shape[0], f_out.shape[1]) == size
-                # cv2.imwrite(f'./{cfg.exp_name}/real_{index}.jpg', f_out)
+                cv2.imwrite(f'./{cfg.exp_name}/real_{index}.jpg', f_out)
                 index+=1
                 vw.write(f_out)
             vw.release()
         
+        print(f'\n\n\n ===================   real timestpe: {track_time}   =================== \n\n\n')
+        
         
         # 2. vae obs env
+        run_time = 0
+        if vae_env.closed:
+            vae_env.launch()
+        else:
+            vae_env.reset()
         obs = torch.as_tensor(vae_env.ready_obs[0]).to(dtype=torch.float32)
         while True:
-            vae_loss_var['diffusion_obs'].append(obs)
+            vae_loss_var['diffusion_obs'].append(obs.cpu())
             inference_output = policy.forward({0: obs})
             output = [v for v in inference_output.values()]
             action = [to_ndarray(v['action']) for v in output][0]  # TBD
+            action = torch.Tensor(action)
             normed_obs = norm_data(obs)
-            next_obs, done = world_model.step(normed_obs, action)
+            next_obs = world_model.step(normed_obs, action)
             obs = norm_data_restore(next_obs)  # (s, a, bg) -> s'
-            if done:
+            run_time += 1
+            if run_time % 5 == 0:
+                print(f'\n\n\n ===================   diffusion timestpe: {run_time}   =================== \n\n\n')
+            if run_time >= track_time:
                 break
         
         # metric: traj & reward
@@ -220,11 +233,25 @@ def serial_pipeline(
         for step, rew in enumerate(episode_return_real):
             tb_logger.add_scalar(f'real_env/reward', rew, step)
         
+        
+        
         # plot obs change
         real_obs = vae_loss_var['real_obs']
+        real_obs = torch.stack(real_obs)
+        real_obs = torch.Tensor(real_obs).cpu()
+        torch.save(real_obs, f'./{cfg.exp_name}/data_real.pt')
+        real_obs = np.array(real_obs)
+        plt.plot(real_obs)
+        plt.savefig(f'./{cfg.exp_name}/real_obs.png')
         
-        
+        plt.figure()
         diffusion_obs = vae_loss_var['diffusion_obs']
+        diffusion_obs = torch.stack(diffusion_obs)
+        diffusion_obs = torch.Tensor(diffusion_obs).cpu()
+        torch.save(diffusion_obs, f'./{cfg.exp_name}/data_diffusion.pt')
+        diffusion_obs = np.array(diffusion_obs)
+        plt.plot(diffusion_obs)
+        plt.savefig(f'./{cfg.exp_name}/diffusion_obs.png')
         
         
         break
@@ -242,7 +269,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--seed', '-s', type=int, default=10)
-    parser.add_argument('--config', '-c', type=str, default='eval_traj_real_vae_config.py')
+    parser.add_argument('--config', '-c', type=str, default='eval_traj_real_diffusion_config.py')
     args = parser.parse_args()
     config = Path(__file__).absolute().parent / 'config' / args.config
     config = read_config(str(config))
