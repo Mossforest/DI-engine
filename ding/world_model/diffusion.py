@@ -376,10 +376,10 @@ class DiffusionWorldModel(WorldModel, nn.Module):
                 name = 'eval_model/nofix_' + k
                 add_dict(self.log_dict, name, v)
 
-    def step(self, obs: Tensor, action: Tensor):
+    def step(self, state: Tensor, action: Tensor):
         r"""
         Overview:
-            Take one step in world model.
+            get the reconciled state
 
         Arguments:
             - obs (:obj:`torch.Tensor`): current observations :math:`S_t`
@@ -401,7 +401,21 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             - next_obs: [B, O]
             - done:     [B, ]
         """
-        raise NotImplementedError
+        cond_s = state.to(torch.float32)
+        cond_a = action.to(torch.float32)
+        background = torch.Tensor([1, 0, 0.1]).to(torch.float32)
+        if self._cuda:
+            cond_a = cond_a.unsqueeze(0).cuda()
+            cond_s = cond_s.unsqueeze(0).cuda()
+            background = background.unsqueeze(0).cuda()
+        
+        with torch.no_grad():
+            x = torch.randn(cond_s.shape, device=cond_s.device)
+            for i in reversed(range(0, self.n_timesteps)):
+                t = torch.full((1,), i, dtype=torch.long, device=cond_s.device)
+                x = self.p_sample_fn(x, cond_a, cond_s, t, background)
+            next_obs = x.squeeze(0)
+        return next_obs
     
     def epoch_log(self, epoch):
         for k in self.log_dict:
