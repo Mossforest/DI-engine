@@ -35,7 +35,7 @@ class DiffusionNet(nn.Module):
         # 1. Encoder & Decoder
         self.encoder = MLP(
             state_size, 
-            hidden_size * 4, 
+            hidden_size, 
             hidden_size, 
             layer_num=3, 
             activation=build_activation(activation), 
@@ -43,7 +43,7 @@ class DiffusionNet(nn.Module):
         )
         self.decoder = MLP(
             hidden_size, 
-            hidden_size * 4, 
+            hidden_size, 
             state_size, 
             layer_num=3, 
             activation=build_activation(activation), 
@@ -95,26 +95,22 @@ class DiffusionNet(nn.Module):
         x = self.encoder(x)
         
         for film1, resblock1, film2, resblock2 in self.down_groups:
-            try:
-                x = film1(x, torch.cat((cond_s, background), dim=1))
-            except RuntimeError:
-                print(f'{cond_s.device}, {background.device}, {x.device}')
-                exit()
+            x = film1(x, torch.cat((cond_s, background), dim=-1))
             x = resblock1(x, t)
-            x = film2(x, torch.cat((cond_a, background), dim=1))
+            x = film2(x, torch.cat((cond_a, background), dim=-1))
             x = resblock2(x, t)
             crop_store.append(x)
         
-        x = self.mid_film1(x, torch.cat((cond_s, background), dim=1))
+        x = self.mid_film1(x, torch.cat((cond_s, background), dim=-1))
         x = self.mid_resblock1(x, t)
-        x = self.mid_film2(x, torch.cat((cond_a, background), dim=1))
+        x = self.mid_film2(x, torch.cat((cond_a, background), dim=-1))
         x = self.mid_resblock2(x, t)
         
         for film1, resblock1, film2, resblock2 in self.up_groups:
-            x = torch.cat((x, crop_store.pop()), dim=1)
-            x = film1(x, torch.cat((cond_s, background), dim=1))
+            x = torch.cat((x, crop_store.pop()), dim=-1)
+            x = film1(x, torch.cat((cond_s, background), dim=-1))
             x = resblock1(x, t)
-            x = film2(x, torch.cat((cond_a, background), dim=1))
+            x = film2(x, torch.cat((cond_a, background), dim=-1))
             x = resblock2(x, t)
         
         x = self.decoder(x)

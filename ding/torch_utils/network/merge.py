@@ -148,6 +148,8 @@ class FiLM(nn.Module):
         # Define the fully connected layer for context
         # The output dimension is twice the feature dimension for gamma and beta
         self.context_layer = nn.Linear(context_dim, 2 * feature_dim)
+        nn.init.zeros_(self.context_layer.weight)
+        nn.init.zeros_(self.context_layer.bias)
 
     def forward(self, feature, context):
         """
@@ -165,7 +167,11 @@ class FiLM(nn.Module):
         # The dimension for splitting is 1 (feature dimension)
         gamma, beta = torch.split(out, out.shape[1] // 2, dim=1)
         # Apply feature-wise affine transformation
-        conditioned_feature = gamma * feature + beta
+        conditioned_feature = (1 + gamma) * feature + beta
+        # # debug: see if the gamma & beta are too big (e.g. the bad dim)
+        # print(f'\n\nFeature: {torch.min(feature)} - {(torch.max(feature))}')
+        # print(f'Gamma: {torch.min(gamma)} - {torch.max(gamma)}')
+        # print(f'Beta: {torch.min(beta)} - {torch.max(beta)}\n\n')
         return conditioned_feature
 
 

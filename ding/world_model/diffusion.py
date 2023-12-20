@@ -123,7 +123,8 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             activation='tanh',
             norm_type='LN',
         )
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self._cfg.learn.learning_rate)
+        # self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self._cfg.learn.learning_rate)
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self._cfg.learn.learning_rate, weight_decay=1e-4)
         # self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, self._cfg.learn.train_epoch)
         
         # helper function to register buffer from float64 to float32
@@ -376,7 +377,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
                 name = 'eval_model/nofix_' + k
                 add_dict(self.log_dict, name, v)
 
-    def step(self, state: Tensor, action: Tensor):
+    def step(self, state: Tensor, action: Tensor, base: Tensor, run_time: int):
         r"""
         Overview:
             get the reconciled state
@@ -409,12 +410,30 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             cond_s = cond_s.unsqueeze(0).cuda()
             background = background.unsqueeze(0).cuda()
         
+        obs_box = []
+        
         with torch.no_grad():
             x = torch.randn(cond_s.shape, device=cond_s.device)
             for i in reversed(range(0, self.n_timesteps)):
                 t = torch.full((1,), i, dtype=torch.long, device=cond_s.device)
                 x = self.p_sample_fn(x, cond_a, cond_s, t, background)
+                obs_box.append(np.array(x.squeeze(0).cpu()))
             next_obs = x.squeeze(0)
+        
+        import matplotlib.pyplot as plt
+        obs_box = np.stack(obs_box)
+        obs_high = np.array([3.14, 5., 5., 5., 3.14, 5., 3.14, 5., 5., 3.14, 5., 3.14, 5., 5., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.])
+        obs_low  = np.array([-3.14, -5., -5., -5., -3.14, -5., -3.14, -5., -0., -3.14, -5., -3.14, -5., -0., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.])
+        for idx in range(obs_box.shape[1]):
+            bb = base[run_time]
+            baseline = np.ones(obs_box[:, idx].shape) * bb[idx].item()
+            plt.figure()
+            plt.plot(baseline)
+            plt.plot(obs_box[:, idx])
+            plt.legend(['real', 'diffusion'])
+            plt.title(f'obs {idx}: [{obs_low[idx]}, {obs_high[idx]}]')
+            plt.savefig(f'./obs_indiffusion_step{run_time}_{idx}.png')
+        
         return next_obs
     
     def epoch_log(self, epoch):
