@@ -151,10 +151,15 @@ def serial_pipeline(
         eval_monitor = VectorEvalMonitor(evaluator_env.env_num, cfg.env.n_evaluator_episode)
         vae_loss_var = {'real_obs': [], 'diffusion_obs': []}
 
-        obs = torch.as_tensor(evaluator_env.ready_obs[0]).to(dtype=torch.float32)
-        vae_loss_var['diffusion_obs'].append(obs.cpu())
+        # obs = torch.as_tensor(evaluator_env.ready_obs[0]).to(dtype=torch.float32)
+        # vae_loss_var['diffusion_obs'].append(obs.cpu())
+        first_obs = []
+        i = 0
         while not eval_monitor.is_finished():
             obs = torch.as_tensor(evaluator_env.ready_obs[0]).to(dtype=torch.float32)
+            i += 1
+            if i >= 2 and i <= 3:
+                first_obs.append(norm_data(obs))
             vae_loss_var['real_obs'].append(obs.cpu())
             inference_output = policy.forward({0: obs})
             if cfg.env.render:
@@ -164,12 +169,12 @@ def serial_pipeline(
             action = [to_ndarray(v['action']) for v in output][0]  # TBD
             timesteps = evaluator_env.step({0: action})
             
-            # world_model inference [next] obs
-            world_action = torch.Tensor(action)
-            world_normed_obs = norm_data(obs)
-            world_next_obs = world_model.step(world_normed_obs, world_action)
-            world_next_obs = norm_data_restore(world_next_obs)  # (s, a, bg) -> s'
-            vae_loss_var['diffusion_obs'].append(world_next_obs.cpu())
+            # # world_model inference [next] obs
+            # world_action = torch.Tensor(action)
+            # world_normed_obs = norm_data(obs)
+            # world_next_obs = world_model.step(world_normed_obs, world_action)
+            # world_next_obs = norm_data_restore(world_next_obs)  # (s, a, bg) -> s'
+            # vae_loss_var['diffusion_obs'].append(world_next_obs.cpu())
             
             for env_id, timestep in timesteps.items():
                 if timestep.done:
@@ -190,48 +195,52 @@ def serial_pipeline(
         # tb_logger.add_scalar(f'real_env/eval_value_min', episode_return_min, epoch)
         # tb_logger.add_scalar(f'real_env/eval_value_max', episode_return_max, epoch)
         # tb_logger.add_scalar(f'real_env/eval_value_std', episode_return_std, epoch)
-        if cfg.env.render:
-            real_replay_video = eval_monitor.get_episode_video()  # [N, T, C, H, W]
-            real_replay_video = real_replay_video.squeeze().transpose(0, 2, 3, 1)  # [T, H, W, C]
+        # if cfg.env.render:
+        #     real_replay_video = eval_monitor.get_episode_video()  # [N, T, C, H, W]
+        #     real_replay_video = real_replay_video.squeeze().transpose(0, 2, 3, 1)  # [T, H, W, C]
             
-            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-            size = (real_replay_video.shape[1], real_replay_video.shape[2])
-            vw = cv2.VideoWriter(f'./{cfg.exp_name}/video_real.avi', fourcc=fourcc, fps=25, frameSize=size)
+        #     fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+        #     size = (real_replay_video.shape[1], real_replay_video.shape[2])
+        #     vw = cv2.VideoWriter(f'./{cfg.exp_name}/video_real.avi', fourcc=fourcc, fps=25, frameSize=size)
             
-            index=0
-            for img in real_replay_video:
-                f_img = Image.fromarray(img)
-                f_out = np.array(f_img, dtype=np.uint8)
-                assert (f_out.shape[0], f_out.shape[1]) == size
-                cv2.imwrite(f'./{cfg.exp_name}/real_{index}.jpg', f_out)
-                index+=1
-                vw.write(f_out)
-            vw.release()
+        #     index=0
+        #     for img in real_replay_video:
+        #         f_img = Image.fromarray(img)
+        #         f_out = np.array(f_img, dtype=np.uint8)
+        #         assert (f_out.shape[0], f_out.shape[1]) == size
+        #         cv2.imwrite(f'./{cfg.exp_name}/real_{index}.jpg', f_out)
+        #         index+=1
+        #         vw.write(f_out)
+        #     vw.release()
         
         print(f'\n\n\n ===================   real timestpe: {track_time}   =================== \n\n\n')
         
         
-        # # 2. vae obs env
-        # run_time = 0
-        # if vae_env.closed:
-        #     vae_env.launch()
-        # else:
-        #     vae_env.reset()
-        # obs = torch.as_tensor(vae_env.ready_obs[0]).to(dtype=torch.float32)
-        # while True:
-        #     vae_loss_var['diffusion_obs'].append(obs.cpu())
-        #     inference_output = policy.forward({0: obs})
-        #     output = [v for v in inference_output.values()]
-        #     action = [to_ndarray(v['action']) for v in output][0]  # TBD
-        #     action = torch.Tensor(action)
-        #     normed_obs = norm_data(obs)
-        #     next_obs = world_model.step(normed_obs, action)
-        #     obs = norm_data_restore(next_obs)  # (s, a, bg) -> s'
-        #     run_time += 1
-        #     if run_time % 5 == 0:
-        #         print(f'\n\n\n ===================   diffusion timestpe: {run_time}   =================== \n\n\n')
-        #     if run_time >= track_time:
-        #         break
+        # 2. vae obs env
+        run_time = 0
+        if vae_env.closed:
+            vae_env.launch()
+        else:
+            vae_env.reset()
+        obs = torch.as_tensor(vae_env.ready_obs[0]).to(dtype=torch.float32)
+        print(f'initial obs:')
+        print(obs.cpu())
+        while True:
+            vae_loss_var['diffusion_obs'].append(obs.cpu())
+            inference_output = policy.forward({0: obs})
+            output = [v for v in inference_output.values()]
+            action = [to_ndarray(v['action']) for v in output][0]  # TBD
+            action = torch.Tensor(action)
+            normed_obs = norm_data(obs)
+            next_obs = world_model.step(normed_obs, action, first_obs, run_time)
+            obs = norm_data_restore(next_obs)  # (s, a, bg) -> s'
+            run_time += 1
+            if run_time == 2:
+                exit()
+            if run_time % 5 == 0:
+                print(f'\n\n\n ===================   diffusion timestpe: {run_time}   =================== \n\n\n')
+            if run_time >= track_time:
+                break
         
         # metric: traj & reward
         real_obs = vae_loss_var['real_obs']

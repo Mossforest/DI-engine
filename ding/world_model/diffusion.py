@@ -2,9 +2,10 @@ import numpy as np
 import copy
 import math
 import tqdm
+import random
 
 from pathlib import Path
-from random import random
+# from random import random
 from functools import partial
 from collections import namedtuple
 from multiprocessing import cpu_count
@@ -171,6 +172,9 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             # 'min_pred': pred.min().item(), 'min_targ': targ.min().item(),
             # 'max_pred': pred.max().item(), 'max_targ': targ.max().item(),
         }
+        idx_loss = loss.mean(0)
+        for idx, sig in enumerate(idx_loss):
+            info[f'loss_dim_{idx}'] = sig.item()
         return loss, info
 
     # model.train with dataset w.o. buffer
@@ -221,6 +225,37 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         assert x_start.shape == x_recon.shape
         loss, logvar = self.loss_fn(x_recon, noise)
         
+        # debug (v1.5.2): 
+        get = random.randint(0, x_start.shape[0]-1)
+        import matplotlib.pyplot as plt
+        plt.figure()
+        plt.plot(np.array(x_start[get].cpu().detach()))
+        plt.plot(np.array(noise[get].cpu().detach()))
+        plt.plot(np.array(x_noisy[get].cpu().detach()))
+        plt.plot(np.array(x_recon[get].cpu().detach()))
+        plt.legend(['x_real', 'noise', 'x_noisy', 'noise_recon'])
+        plt.title(f'add noise to step {t[get].item()}')
+        plt.savefig(f'./obs_addnoise_step{t[get].item()}.png')
+        
+        get = random.randint(0, x_start.shape[0]-1)
+        plt.figure()
+        plt.plot(np.array(x_start[get].cpu().detach()))
+        plt.plot(np.array(noise[get].cpu().detach()))
+        plt.plot(np.array(x_noisy[get].cpu().detach()))
+        plt.plot(np.array(x_recon[get].cpu().detach()))
+        plt.legend(['x_real', 'noise', 'x_noisy', 'noise_recon'])
+        plt.title(f'add noise to step {t[get].item()}')
+        plt.savefig(f'./obs_addnoise_step{t[get].item()}.png')
+        
+        get = random.randint(0, x_start.shape[0]-1)
+        plt.figure()
+        plt.plot(np.array(x_start[get].cpu().detach()))
+        plt.plot(np.array(noise[get].cpu().detach()))
+        plt.plot(np.array(x_noisy[get].cpu().detach()))
+        plt.plot(np.array(x_recon[get].cpu().detach()))
+        plt.legend(['x_real', 'noise', 'x_noisy', 'noise_recon'])
+        plt.title(f'add noise to step {t[get].item()}')
+        plt.savefig(f'./obs_addnoise_step{t[get].item()}.png')
         
         # train with loss
         self.optimizer.zero_grad()
@@ -377,7 +412,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
                 name = 'eval_model/nofix_' + k
                 add_dict(self.log_dict, name, v)
 
-    def step(self, state: Tensor, action: Tensor, base: Tensor, run_time: int):
+    def step(self, state: Tensor, action: Tensor):
         r"""
         Overview:
             get the reconciled state
@@ -419,20 +454,6 @@ class DiffusionWorldModel(WorldModel, nn.Module):
                 x = self.p_sample_fn(x, cond_a, cond_s, t, background)
                 obs_box.append(np.array(x.squeeze(0).cpu()))
             next_obs = x.squeeze(0)
-        
-        import matplotlib.pyplot as plt
-        obs_box = np.stack(obs_box)
-        obs_high = np.array([3.14, 5., 5., 5., 3.14, 5., 3.14, 5., 5., 3.14, 5., 3.14, 5., 5., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.])
-        obs_low  = np.array([-3.14, -5., -5., -5., -3.14, -5., -3.14, -5., -0., -3.14, -5., -3.14, -5., -0., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.])
-        for idx in range(obs_box.shape[1]):
-            bb = base[run_time]
-            baseline = np.ones(obs_box[:, idx].shape) * bb[idx].item()
-            plt.figure()
-            plt.plot(baseline)
-            plt.plot(obs_box[:, idx])
-            plt.legend(['real', 'diffusion'])
-            plt.title(f'obs {idx}: [{obs_low[idx]}, {obs_high[idx]}]')
-            plt.savefig(f'./obs_indiffusion_step{run_time}_{idx}.png')
         
         return next_obs
     
