@@ -35,7 +35,7 @@ class DiffusionNet(nn.Module):
         # 1. Encoder & Decoder
         self.encoder = MLP(
             state_size, 
-            hidden_size * 4, 
+            hidden_size, 
             hidden_size, 
             layer_num=3, 
             activation=build_activation(activation), 
@@ -43,7 +43,7 @@ class DiffusionNet(nn.Module):
         )
         self.decoder = MLP(
             hidden_size, 
-            hidden_size * 4, 
+            hidden_size, 
             state_size, 
             layer_num=3, 
             activation=build_activation(activation), 
@@ -83,9 +83,9 @@ class DiffusionNet(nn.Module):
         # 3. temporal embedding
         self.time_mlp = nn.Sequential(
             GaussianFourierProjection(hidden_size),
-            nn.Linear(hidden_size, hidden_size * 4),    # TODO
+            nn.Linear(hidden_size, hidden_size),    # TODO
             build_activation(self.activation),
-            nn.Linear(hidden_size * 4, hidden_size)
+            nn.Linear(hidden_size, hidden_size)
         )
     
     def forward(self, x, cond_a, cond_s, t, background):

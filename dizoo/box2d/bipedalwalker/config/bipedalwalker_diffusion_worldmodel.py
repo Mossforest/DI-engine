@@ -4,7 +4,7 @@ from easydict import EasyDict
 
 main_config = dict(
     # exp_name="bipedalwalker_diffusion_worldmodel_seed0",
-    exp_name="bipedalwalker_vae_seed0",
+    exp_name="bipedalwalker_vae_v161",
     env=dict(
         env_name='BipedalWalker-v3',
         act_scale=True,
@@ -35,7 +35,7 @@ main_config = dict(
         ),
         learn=dict(
             data_path=None,
-            train_epoch=1000,
+            train_epoch=5000,
             batch_size=256,
             learning_rate=3e-4,
         ),

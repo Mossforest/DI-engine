@@ -121,4 +121,4 @@ class DiffusionNet(nn.Module):
         kld_loss = -0.5 * torch.sum(1 + log_sigma - miu ** 2 - log_sigma.exp(), dim=0)
 
         loss = recons_loss + kld_weight * kld_loss
-        return {'loss': loss, 'reconstruction_loss': recons_loss, 'kld_loss': kld_loss}
+        return {'loss': loss.mean(), 'reconstruction_loss': recons_loss.mean(), 'kld_loss': kld_loss.mean()}
