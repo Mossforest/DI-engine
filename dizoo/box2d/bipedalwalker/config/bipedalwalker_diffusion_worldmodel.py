@@ -17,8 +17,8 @@ main_config = dict(
         collect=dict(
             data_type='hdf5',
             # offline data path
-            train_data_path='/mnt/nfs/chenxinyan/DI-engine/bipedalwalker_data/bipedalwalker_normal_smoother_collect/processed_train.hdf5',
-            eval_data_path='/mnt/nfs/chenxinyan/DI-engine/bipedalwalker_data/bipedalwalker_normal_smoother_collect/processed_eval.hdf5',
+            train_data_path='./bipedalwalker_data/bipedalwalker_normal_smoother_collect/single_instance_larger.hdf5',
+            eval_data_path='./bipedalwalker_data/bipedalwalker_normal_smoother_collect/single_instance_larger.hdf5',
         ),
     ),
     world_model=dict(
@@ -30,8 +30,8 @@ main_config = dict(
             state_size=24,
             action_size=4,
             background_size=3,
-            hidden_size=1024,
-            layer_num=9,
+            hidden_size=512,
+            layer_num=5,
         ),
         learn=dict(
             data_path=None,
