@@ -19,7 +19,7 @@ from ding.utils.data import create_dataset
 
 class HDF5Dataset(Dataset):
 
-    def __init__(self, data_path):
+    def __init__(self, data_path, ignore_dim):
         # if 'dataset' in cfg:
         #     self.context_len = cfg.dataset.context_len
         # else:
@@ -28,6 +28,16 @@ class HDF5Dataset(Dataset):
         self._load_data(data)
         self._norm_data()
         self._cal_statistics()
+        
+        # delete ignore_dim
+        ignore_dim.reverse()
+        print(ignore_dim)
+        for idx in ignore_dim:
+            print(f'delete {ignore_dim}, ')
+            self._data['obs'] = np.delete(self._data['obs'], idx, axis=-1)
+            self._data['next_obs'] = np.delete(self._data['next_obs'], idx, axis=-1)
+        
+        print(f'--debug--: data shape: {self._data["obs"].shape}')
 
     def __len__(self) -> int:
         return len(self._data['obs'])
@@ -86,8 +96,8 @@ def serial_pipeline_worldmodel(
     print(f'============== exp name: {cfg.exp_name}')
     
     # dataset
-    train_dataset = HDF5Dataset(cfg.policy.collect.train_data_path)
-    eval_dataset = HDF5Dataset(cfg.policy.collect.eval_data_path)
+    train_dataset = HDF5Dataset(cfg.policy.collect.train_data_path, cfg.policy.collect.ignore_dim.copy())
+    eval_dataset = HDF5Dataset(cfg.policy.collect.eval_data_path, cfg.policy.collect.ignore_dim.copy())
     train_dataloader = DataLoader(
         train_dataset,
         cfg.world_model.learn.batch_size,
@@ -113,7 +123,6 @@ def serial_pipeline_worldmodel(
     
     # world_model
     world_model = create_world_model(cfg.world_model, env_fn(cfg.env), tb_logger)
-    world_model.load_model(cfg.world_model.test.state_dict_path)
 
     print('start training...')
     for epoch in range(cfg.world_model.learn.train_epoch):

@@ -1,7 +1,7 @@
 from easydict import EasyDict
 
 bipedalwalker_sac_config = dict(
-    exp_name='exp_v1.5.2_eval',
+    exp_name='exp_v1.7.1_eval',
     seed=123,
     env=dict(
         env_id='BipedalWalker-v3',
@@ -36,17 +36,18 @@ bipedalwalker_sac_config = dict(
         beta_schedule='cosine',
         clip_denoised=True,
         model=dict(
-            state_size=24,
+            state_size=20,
             action_size=4,
             background_size=3,
             hidden_size=512,
             layer_num=5,
+            ignore_dim=[8,13,22,23],
         ),
         test=dict(
             data_path=None,
             test_epoch=100,
             batch_size=10000,
-            state_dict_path='./exp_v1.4.4_train/model/epoch70',
+            state_dict_path='./exp_v1.6.2_240109_100048/model/epoch720',
         ),
     ),
     eval_step=50,

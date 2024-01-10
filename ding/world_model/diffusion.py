@@ -225,38 +225,6 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         assert x_start.shape == x_recon.shape
         loss, logvar = self.loss_fn(x_recon, noise)
         
-        # debug (v1.5.2): 
-        get = random.randint(0, x_start.shape[0]-1)
-        import matplotlib.pyplot as plt
-        plt.figure()
-        plt.plot(np.array(x_start[get].cpu().detach()))
-        plt.plot(np.array(noise[get].cpu().detach()))
-        plt.plot(np.array(x_noisy[get].cpu().detach()))
-        plt.plot(np.array(x_recon[get].cpu().detach()))
-        plt.legend(['x_real', 'noise', 'x_noisy', 'noise_recon'])
-        plt.title(f'add noise to step {t[get].item()}')
-        plt.savefig(f'./obs_addnoise_step{t[get].item()}.png')
-        
-        get = random.randint(0, x_start.shape[0]-1)
-        plt.figure()
-        plt.plot(np.array(x_start[get].cpu().detach()))
-        plt.plot(np.array(noise[get].cpu().detach()))
-        plt.plot(np.array(x_noisy[get].cpu().detach()))
-        plt.plot(np.array(x_recon[get].cpu().detach()))
-        plt.legend(['x_real', 'noise', 'x_noisy', 'noise_recon'])
-        plt.title(f'add noise to step {t[get].item()}')
-        plt.savefig(f'./obs_addnoise_step{t[get].item()}.png')
-        
-        get = random.randint(0, x_start.shape[0]-1)
-        plt.figure()
-        plt.plot(np.array(x_start[get].cpu().detach()))
-        plt.plot(np.array(noise[get].cpu().detach()))
-        plt.plot(np.array(x_noisy[get].cpu().detach()))
-        plt.plot(np.array(x_recon[get].cpu().detach()))
-        plt.legend(['x_real', 'noise', 'x_noisy', 'noise_recon'])
-        plt.title(f'add noise to step {t[get].item()}')
-        plt.savefig(f'./obs_addnoise_step{t[get].item()}.png')
-        
         # train with loss
         self.optimizer.zero_grad()
         loss.mean().backward()

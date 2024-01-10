@@ -3,7 +3,7 @@
 from easydict import EasyDict
 
 main_config = dict(
-    exp_name="exp_v1.5.2_train_with_single_model",
+    exp_name="exp_v1.6.2",
     env=dict(
         env_name='BipedalWalker-v3',
         act_scale=True,
@@ -16,8 +16,9 @@ main_config = dict(
         collect=dict(
             data_type='hdf5',
             # offline data path
-            train_data_path='./bipedalwalker_data/bipedalwalker_normal_smoother_collect/single_instance_larger.hdf5',
-            eval_data_path='./bipedalwalker_data/bipedalwalker_normal_smoother_collect/single_instance_larger.hdf5',
+            train_data_path='./bipedalwalker_data/bipedalwalker_normal_smoother_collect/processed_train.hdf5',
+            eval_data_path='./bipedalwalker_data/bipedalwalker_normal_smoother_collect/processed_eval.hdf5',
+            ignore_dim=[8,13,22,23],
         ),
     ),
     world_model=dict(
@@ -26,7 +27,7 @@ main_config = dict(
         beta_schedule='cosine',
         clip_denoised=True,
         model=dict(
-            state_size=24,
+            state_size=20,
             action_size=4,
             background_size=3,
             hidden_size=512,
@@ -34,7 +35,7 @@ main_config = dict(
         ),
         learn=dict(
             data_path=None,
-            train_epoch=1000,
+            train_epoch=5000,
             batch_size=256,
             learning_rate=3e-4,
         ),
@@ -42,7 +43,6 @@ main_config = dict(
             data_path=None,
             test_epoch=100,
             batch_size=10000,
-            state_dict_path='./exp_v1.5.1_train/model/epoch990'
         ),
     ),
 )
