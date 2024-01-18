@@ -22,6 +22,7 @@ from ding.utils import WORLD_MODEL_REGISTRY, lists_to_dicts
 from ding.utils.data import default_collate
 from ding.worker import IBuffer
 from ding.envs import BaseEnv
+from ding.torch_utils import Adam
 from ding.model import ConvEncoder
 from ding.world_model.base_world_model import WorldModel
 from ding.world_model.model.diffusionnet import DiffusionNet
@@ -125,8 +126,18 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             norm_type='LN',
         )
         # self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self._cfg.learn.learning_rate)
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self._cfg.learn.learning_rate, weight_decay=1e-4)
-        # self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, self._cfg.learn.train_epoch)
+        # self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self._cfg.learn.learning_rate, weight_decay=1e-4)
+        self.optimizer = Adam(
+            self.model.parameters(),
+            lr=self._cfg.learn.learning_rate,
+            optim_type='adamw',
+            weight_decay=1e-4,
+            grad_clip_type='clip_norm',
+            clip_value=0.5,
+        )
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, self._cfg.learn.train_epoch)
+        
+        # self.lossfn = torch.nn.SmoothL1Loss(reduction='none', beta=2)  # (-1, 1)
         
         # helper function to register buffer from float64 to float32
         register_buffer = lambda name, val: self.register_buffer(name, val.to(torch.float32))
@@ -147,25 +158,21 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         register_buffer('posterior_variance', posterior_variance)
 
         # below: log calculation clipped because the posterior variance is 0 at the beginning of the diffusion chain
-        register_buffer('posterior_log_variance_clipped', torch.log(posterior_variance.clamp(min =1e-20)))
+        posterior_log_variance_clipped = torch.log(posterior_variance.clamp(min =1e-20))
+        register_buffer('posterior_log_variance_clipped', posterior_log_variance_clipped)
         register_buffer('posterior_mean_coef1', betas * torch.sqrt(alphas_cumprod_prev) / (1. - alphas_cumprod))
         register_buffer('posterior_mean_coef2', (1. - alphas_cumprod_prev) * torch.sqrt(alphas) / (1. - alphas_cumprod))
         
+        # register_buffer('loss_weight', 0.5 * betas / (alphas - alphas_cumprod))
         
         if self._cuda:
             self.cuda()
         
-        
-        ########### debug
-        # print(f'alphas_cumprod: {self.alphas_cumprod[-20:]}')
-        # print(f'sqrt_alphas_cumprod: {self.sqrt_alphas_cumprod[-20:]}')
-        # print(f'sqrt_one_minus_alphas_cumprod: {self.sqrt_one_minus_alphas_cumprod[-20:]}')
-        # print(f'log_one_minus_alphas_cumprod: {self.log_one_minus_alphas_cumprod[-20:]}')
-        # exit()
-        
 
-    def loss_fn(self, pred, targ):
-        loss = F.mse_loss(pred, targ, reduction='none')
+    def loss_fn(self, pred, targ, t):
+        # weight = extract(self.posterior_log_variance_clipped, t, pred.shape)
+        loss = F.mse_loss(pred, targ, reduction='none') #* weight
+        # loss = self.lossfn(pred, targ)
         info = {
             'loss': loss.mean().item(),
             # 'mean_pred': pred.mean().item(), 'mean_targ': targ.mean().item(),
@@ -223,7 +230,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         )
         x_recon = self.model(x_noisy, cond_a, cond_s, t, background)
         assert x_start.shape == x_recon.shape
-        loss, logvar = self.loss_fn(x_recon, noise)
+        loss, logvar = self.loss_fn(x_recon, noise, t)
         
         # train with loss
         self.optimizer.zero_grad()
@@ -234,9 +241,11 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         # log
         if self.tb_logger is not None:
             for k, v in logvar.items():
-                name = 'train_model' + k
+                name = 'train_model/' + k
                 add_dict(self.log_dict, name, v)
             add_dict(self.log_dict, 'train_model/learning_rate', lr)
+        
+        return loss.detach().cpu(), t.cpu()
 
     #--------------------------------------- eval ---------------------------------------#
 
@@ -250,11 +259,6 @@ class DiffusionWorldModel(WorldModel, nn.Module):
                 extract(self.sqrt_recip_alphas_cumprod, t, x.shape) * x_t -
                 extract(self.sqrt_recipm1_alphas_cumprod, t, x.shape) * noise
             )
-        # if t[0] % 100==99:
-        #     print(f'NOISE  : {noise[0]}')
-        #     print(f't: {t[0]}')
-        #     print(f'1: {extract(self.sqrt_recip_alphas_cumprod, t, x.shape)[0] }')
-        #     print(f'X_RECON: {x_recon[0]}')
         if self._cfg.clip_denoised:  # TODO
             x_recon.clamp_(-1., 1.)
 
@@ -380,7 +384,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
                 name = 'eval_model/nofix_' + k
                 add_dict(self.log_dict, name, v)
 
-    def step(self, state: Tensor, action: Tensor):
+    def step(self, state: Tensor, action: Tensor, instep=False):
         r"""
         Overview:
             get the reconciled state
@@ -422,6 +426,9 @@ class DiffusionWorldModel(WorldModel, nn.Module):
                 x = self.p_sample_fn(x, cond_a, cond_s, t, background)
                 obs_box.append(np.array(x.squeeze(0).cpu()))
             next_obs = x.squeeze(0)
+        
+        if instep:
+            return next_obs, obs_box
         
         return next_obs
     

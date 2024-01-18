@@ -48,6 +48,8 @@ class DiffusionNet(nn.Module):
             layer_num=3, 
             activation=build_activation(activation), 
             norm_type=norm_type,
+            output_activation=False,
+            last_linear_layer_init_zero=True,
         )
         
         # 2. Modified U-net
@@ -83,9 +85,9 @@ class DiffusionNet(nn.Module):
         # 3. temporal embedding
         self.time_mlp = nn.Sequential(
             GaussianFourierProjection(hidden_size),
-            nn.Linear(hidden_size, hidden_size * 4),    # TODO
+            nn.Linear(hidden_size, hidden_size),
             build_activation(self.activation),
-            nn.Linear(hidden_size * 4, hidden_size)
+            nn.Linear(hidden_size, hidden_size)
         )
     
     def forward(self, x, cond_a, cond_s, t, background):

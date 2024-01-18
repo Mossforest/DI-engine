@@ -803,9 +803,10 @@ class SACPolicy(Policy):
             data = to_device(data, self._device)
         self._eval_model.eval()
         with torch.no_grad():
-            (mu, sigma) = self._eval_model.forward(data, mode='compute_actor')['logit']
+            result = self._eval_model.forward(data, mode='compute_actor')
+            (mu, sigma) = result['logit']
             action = torch.tanh(mu)  # deterministic_eval
-            output = {'action': action}
+            output = {'action': action, 'embed_obs': result['embed_obs']}
         if self._cuda:
             output = to_device(output, 'cpu')
         output = default_decollate(output)

@@ -274,8 +274,15 @@ class ContinuousQAC(nn.Module):
             x = self.actor_head(obs)
             return {'action': x['pred']}
         elif self.action_space == 'reparameterization':
+            x = obs
+            modulelist = list(self.actor_head)  # linear, act, reparam
+            reparam = list(modulelist[2].modules())
+            for l in modulelist[:2]:
+                x = l(x)
+            x = reparam[1](x)
+            keep = x
             x = self.actor_head(obs)
-            return {'logit': [x['mu'], x['sigma']]}
+            return {'logit': [x['mu'], x['sigma']], 'embed_obs': keep.detach()}
         elif self.action_space == 'hybrid':
             logit = self.actor_head[0](obs)
             action_args = self.actor_head[1](obs)

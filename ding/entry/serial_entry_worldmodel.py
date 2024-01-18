@@ -9,6 +9,7 @@ from functools import partial
 from tensorboardX import SummaryWriter
 from copy import deepcopy
 from torch.utils.data import DataLoader, Dataset
+import matplotlib.pyplot as plt
 
 from ding.envs import get_vec_env_setting, create_env_manager
 # from ding.worker import BaseLearner, InteractionSerialEvaluator
@@ -31,13 +32,10 @@ class HDF5Dataset(Dataset):
         
         # delete ignore_dim
         ignore_dim.reverse()
-        print(ignore_dim)
         for idx in ignore_dim:
-            print(f'delete {ignore_dim}, ')
             self._data['obs'] = np.delete(self._data['obs'], idx, axis=-1)
             self._data['next_obs'] = np.delete(self._data['next_obs'], idx, axis=-1)
         
-        print(f'--debug--: data shape: {self._data["obs"].shape}')
 
     def __len__(self) -> int:
         return len(self._data['obs'])
@@ -80,6 +78,15 @@ class HDF5Dataset(Dataset):
     def action_bounds(self) -> np.ndarray:
         return self._action_bounds
 
+
+def draw(x, y, name, path):
+    x = np.array(x)
+    y = np.array(y)
+    plt.figure()
+    plt.scatter(x, y)
+    plt.title(name)
+    plt.savefig(f'{path}/{name}.png')
+    plt.close()
 
 
 def serial_pipeline_worldmodel(

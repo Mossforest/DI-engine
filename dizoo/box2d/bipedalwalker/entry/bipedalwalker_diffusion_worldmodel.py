@@ -7,7 +7,7 @@ def train(args):
     # launch from anywhere
     config = Path(__file__).absolute().parent.parent / 'config' / args.config
     config = read_config(str(config))
-    config[0].exp_name = config[0].exp_name.replace('0', str(args.seed))
+    # config[0].exp_name = config[0].exp_name.replace('0', str(args.seed))
     serial_pipeline_worldmodel(config, seed=args.seed)
 
 

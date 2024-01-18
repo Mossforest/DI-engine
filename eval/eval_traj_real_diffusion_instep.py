@@ -147,6 +147,7 @@ def serial_pipeline(
     print('start eval...')
     for _ in range(cfg.policy.eval.test_epoch):
         track_time = 0
+        instep_draw_time = 0
         # 1. real world env
         if evaluator_env.closed:
             evaluator_env.launch()
@@ -155,8 +156,8 @@ def serial_pipeline(
         eval_monitor = VectorEvalMonitor(evaluator_env.env_num, cfg.env.n_evaluator_episode)
         vae_loss_var = {'real_obs': [], 'diffusion_obs': []}
 
-        # obs = torch.as_tensor(evaluator_env.ready_obs[0]).to(dtype=torch.float32)
-        # vae_loss_var['diffusion_obs'].append(obs.cpu())
+        obs = torch.as_tensor(evaluator_env.ready_obs[0]).to(dtype=torch.float32)
+        vae_loss_var['diffusion_obs'].append(obs.cpu())   # to align
         while not eval_monitor.is_finished():
             obs = torch.as_tensor(evaluator_env.ready_obs[0]).to(dtype=torch.float32)
             vae_loss_var['real_obs'].append(obs.cpu())
@@ -173,15 +174,6 @@ def serial_pipeline(
             world_action = torch.Tensor(action)
             world_normed_obs = norm_data(obs)
             
-            # ### multi-row version
-            # # ignore_dim
-            # tmp = []
-            # for idx in range(world_normed_obs.shape[1]):
-            #     if idx not in cfg.world_model.model.ignore_dim:
-            #         tmp.append(world_normed_obs[:, idx])
-            # world_normed_obs = torch.stack(tmp, dim=1)
-            # # done
-            
             # ignore_dim
             tmp = []
             for idx in range(world_normed_obs.shape[0]):
@@ -190,20 +182,7 @@ def serial_pipeline(
             world_normed_obs = torch.Tensor(tmp)
             # done
             
-            world_next_obs = world_model.step(world_normed_obs, world_action)
-            
-            # ### multi-row version
-            # # restore ignore_dim
-            # tmp = []
-            # for idx in range(world_next_obs.shape[1]):
-            #     while len(tmp) in cfg.world_model.model.ignore_dim:
-            #         tmp.append(torch.full(world_next_obs.shape[0], 0))
-            #     tmp.append(world_next_obs[:, idx])
-            # while len(tmp) in cfg.world_model.model.ignore_dim:
-            #     tmp.append(torch.full(world_next_obs.shape[0], 0))
-            # world_next_obs = torch.stack(tmp, dim=1)
-            # # done
-            # restore ignore_dim
+            world_next_obs, obs_box = world_model.step(world_normed_obs, world_action, instep=True)
             tmp = []
             for idx in range(world_next_obs.shape[0]):
                 while len(tmp) in cfg.world_model.model.ignore_dim:
@@ -213,6 +192,44 @@ def serial_pipeline(
                 tmp.append(0)
             world_next_obs = torch.Tensor(tmp)
             # done
+            
+            # print('debug\n\n\n')
+            # obs_box = np.stack(obs_box)
+            # for i in range(obs_box.shape[1]):
+            #     print(f'dim{i}: max {np.max(obs_box[:, i])}, min {np.min(obs_box[:, i])}')
+            # exit()
+            
+            # draw in_step diffusion process (normed)
+            real_draw = torch.as_tensor(evaluator_env.ready_obs[0])
+            real_draw = np.array(norm_data(real_draw))
+            diffusion_draw = np.array(world_next_obs)
+            
+            randomset = random.randint(0, 50)
+            if randomset == 27:  # the collapse step    and track_time >= 100
+                obs_box = np.stack(obs_box)
+                # ignored_dim
+                for idx in cfg.world_model.model.ignore_dim:
+                    obs_box = np.insert(obs_box, idx, 0, axis=1)
+                
+                obs_high = np.array([3.14, 5., 5., 5., 3.14, 5., 3.14, 5., 5., 3.14, 5., 3.14, 5., 5., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.])
+                obs_low  = np.array([-3.14, -5., -5., -5., -3.14, -5., -3.14, -5., -0., -3.14, -5., -3.14, -5., -0., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.])
+                for idx in range(obs_box.shape[1]):
+                    base = real_draw[idx].item()
+                    baseline = np.ones(obs_box[:, idx].shape) * base
+                    diff = diffusion_draw[idx].item()
+                    diffline = np.ones(obs_box[:, idx].shape) * diff
+                    plt.figure()
+                    plt.plot(baseline)
+                    plt.plot(obs_box[:, idx])
+                    plt.plot(diffline)
+                    plt.legend(['real', 'diffusion', 'diff_end'])
+                    plt.title(f'obs {idx}: [{obs_low[idx]}, {obs_high[idx]}]')
+                    plt.savefig(f'./{cfg.exp_name}/obs_indiffusion_step{track_time}_{idx}.png')
+                    plt.close()
+                instep_draw_time += 1
+                if instep_draw_time == 3:
+                    exit()
+            
             
             world_next_obs = norm_data_restore(world_next_obs)  # (s, a, bg) -> s'
             vae_loss_var['diffusion_obs'].append(world_next_obs.cpu())
@@ -246,7 +263,7 @@ def serial_pipeline(
         real_obs = vae_loss_var['real_obs']
         real_obs = torch.stack(real_obs)
         real_obs = torch.Tensor(real_obs).cpu()
-        # torch.save(real_obs, f'./{cfg.exp_name}/data_real.pt')
+        torch.save(real_obs, f'./{cfg.exp_name}/data_real.pt')
         real_obs = np.array(real_obs)
         plt.plot(real_obs)
         plt.savefig(f'./{cfg.exp_name}/real_obs.png')
@@ -255,31 +272,10 @@ def serial_pipeline(
         diffusion_obs = vae_loss_var['diffusion_obs']
         diffusion_obs = torch.stack(diffusion_obs)
         diffusion_obs = torch.Tensor(diffusion_obs).cpu()
-        # torch.save(diffusion_obs, f'./{cfg.exp_name}/data_diffusion.pt')
+        torch.save(diffusion_obs, f'./{cfg.exp_name}/data_diffusion.pt')
         diffusion_obs = np.array(diffusion_obs)
         plt.plot(diffusion_obs)
         plt.savefig(f'./{cfg.exp_name}/diffusion_obs.png')
-        
-        # draw each dim
-        real = real_obs
-        diff = diffusion_obs
-
-        real = np.array(real)
-        diff = np.array(diff)
-
-        obs_high = np.array([3.14, 5., 5., 5., 3.14, 5., 3.14, 5., 5., 3.14, 5., 3.14, 5., 5., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.])
-        obs_low  = np.array([-3.14, -5., -5., -5., -3.14, -5., -3.14, -5., -0., -3.14, -5., -3.14, -5., -0., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.])
-
-        assert real.shape[1] == diff.shape[1]
-        for idx in range(real.shape[1]):
-            plt.figure()
-            plt.plot(real[:, idx])
-            plt.plot(diff[:, idx])
-            plt.legend(['real', 'diffusion'])
-            plt.title(f'obs {idx}: [{obs_low[idx]}, {obs_high[idx]}]')
-            plt.savefig(f'./{cfg.exp_name}/obs_{idx}.png')
-            plt.close()
-        
         break
 
 

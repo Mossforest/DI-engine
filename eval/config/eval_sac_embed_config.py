@@ -1,7 +1,7 @@
 from easydict import EasyDict
 
 bipedalwalker_sac_config = dict(
-    exp_name='exp_v1.10_ddpm20',
+    exp_name='exp_demo_sac_embed_main',
     seed=123,
     env=dict(
         env_id='BipedalWalker-v3',
@@ -30,26 +30,6 @@ bipedalwalker_sac_config = dict(
             state_dict_path='./bipedalwalker_hardcore_pretrain/ckpt/ckpt_best.pth.tar',
         ),
     ),
-    world_model=dict(
-        cuda=True,
-        n_timesteps=20,
-        beta_schedule='cosine',
-        clip_denoised=True,
-        model=dict(
-            state_size=20,
-            action_size=4,
-            background_size=3,
-            hidden_size=512,
-            layer_num=5,
-            ignore_dim=[8,13,22,23],
-        ),
-        test=dict(
-            data_path=None,
-            test_epoch=100,
-            batch_size=10000,
-            state_dict_path='./exp_v1.10_ddpm20/model/epoch1090',
-        ),
-    ),
     eval_step=50,
 )
 bipedalwalker_sac_config = EasyDict(bipedalwalker_sac_config)
@@ -61,10 +41,6 @@ bipedalwalker_sac_create_config = dict(
     ),
     env_manager=dict(type='subprocess'),
     policy=dict(type='sac', ),
-    world_model=dict(
-        type='diffusion',
-        import_names=['ding.world_model.diffusion'],
-    ),
     replay_buffer=dict(type='naive', ),
 )
 bipedalwalker_sac_create_config = EasyDict(bipedalwalker_sac_create_config)
