@@ -132,8 +132,8 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             lr=self._cfg.learn.learning_rate,
             optim_type='adamw',
             weight_decay=1e-4,
-            grad_clip_type='clip_norm',
-            clip_value=0.5,
+            # grad_clip_type='clip_norm',
+            # clip_value=0.5,
         )
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, self._cfg.learn.train_epoch)
         
@@ -169,7 +169,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             self.cuda()
         
 
-    def loss_fn(self, pred, targ, t):
+    def loss_fn(self, pred, targ):
         # weight = extract(self.posterior_log_variance_clipped, t, pred.shape)
         loss = F.mse_loss(pred, targ, reduction='none') #* weight
         # loss = self.lossfn(pred, targ)
@@ -230,7 +230,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         )
         x_recon = self.model(x_noisy, cond_a, cond_s, t, background)
         assert x_start.shape == x_recon.shape
-        loss, logvar = self.loss_fn(x_recon, noise, t)
+        loss, logvar = self.loss_fn(x_recon, noise)
         
         # train with loss
         self.optimizer.zero_grad()

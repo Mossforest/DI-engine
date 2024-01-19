@@ -48,8 +48,8 @@ class DiffusionNet(nn.Module):
             layer_num=3, 
             activation=build_activation(activation), 
             norm_type=norm_type,
-            output_activation=False,
-            last_linear_layer_init_zero=True,
+            # output_activation=False,
+            # last_linear_layer_init_zero=True,
         )
         
         # 2. Modified U-net
@@ -116,5 +116,7 @@ class DiffusionNet(nn.Module):
             x = resblock2(x, t)
         
         x = self.decoder(x)
+        
+        x = x * 3    # change to (-3, 3)
         
         return x

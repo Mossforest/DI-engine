@@ -4,23 +4,29 @@ import time
 import numpy as np
 import random
 import torch
+import treetensor.torch as ttorch
 import h5py
+import cv2
+import matplotlib.pyplot as plt
+from PIL import Image
 from functools import partial
 from tensorboardX import SummaryWriter
 from copy import deepcopy
 from torch.utils.data import DataLoader, Dataset
-import matplotlib.pyplot as plt
 
 from ding.envs import get_vec_env_setting, create_env_manager
 # from ding.worker import BaseLearner, InteractionSerialEvaluator
 from ding.config import read_config, compile_config
+from ding.policy import create_policy
 from ding.world_model import create_world_model
 from ding.utils import set_pkg_seed
-from ding.utils.data import create_dataset
+from ding.torch_utils import to_ndarray, get_shape0
+from pathlib import Path
+from ding.framework.middleware.functional.evaluator import VectorEvalMonitor
 
 class HDF5Dataset(Dataset):
 
-    def __init__(self, data_path, ignore_dim):
+    def __init__(self, data_path):
         # if 'dataset' in cfg:
         #     self.context_len = cfg.dataset.context_len
         # else:
@@ -29,13 +35,6 @@ class HDF5Dataset(Dataset):
         self._load_data(data)
         self._norm_data()
         self._cal_statistics()
-        
-        # delete ignore_dim
-        ignore_dim.reverse()
-        for idx in ignore_dim:
-            self._data['obs'] = np.delete(self._data['obs'], idx, axis=-1)
-            self._data['next_obs'] = np.delete(self._data['next_obs'], idx, axis=-1)
-        
 
     def __len__(self) -> int:
         return len(self._data['obs'])
@@ -48,7 +47,7 @@ class HDF5Dataset(Dataset):
         for k in dataset.keys():
             self._data[k] = dataset[k][:]
 
-    def _norm_data(self):
+    def _norm_data(self):    # TODO: also do norm in eval before world model, re-norm after model
         # renorm obs of bipedalwalker
         obs_high = np.array([3.14, 5., 5., 5., 3.14, 5., 3.14, 5., 5., 3.14, 5., 3.14, 5., 5., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.])
         obs_low  = np.array([-3.14, -5., -5., -5., -3.14, -5., -3.14, -5., -0., -3.14, -5., -3.14, -5., -0., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.])
@@ -79,17 +78,7 @@ class HDF5Dataset(Dataset):
         return self._action_bounds
 
 
-def draw(x, y, name, path):
-    x = np.array(x)
-    y = np.array(y)
-    plt.figure()
-    plt.scatter(x, y)
-    plt.title(name)
-    plt.savefig(f'{path}/{name}.png')
-    plt.close()
-
-
-def serial_pipeline_worldmodel(
+def serial_pipeline(
         input_cfg: Union[str, Tuple[dict, dict]],
         seed: int = 0
 ):
@@ -97,63 +86,66 @@ def serial_pipeline_worldmodel(
         cfg, create_cfg = read_config(input_cfg)
     else:
         cfg, create_cfg = deepcopy(input_cfg)
-    # create_cfg.world_model.type = create_cfg.world_model.type + '_command'
+    create_cfg.policy.type = create_cfg.policy.type + '_command'
     cfg = compile_config(cfg, seed=seed, auto=True, create_cfg=create_cfg)
     
     print(f'============== exp name: {cfg.exp_name}')
+    set_pkg_seed(cfg.seed, use_cuda=cfg.policy.cuda)
+    
+    # agent
+    policy = create_policy(cfg.policy, enable_field=['eval', 'command'])
+    pre_policy = torch.load(cfg.policy.eval.state_dict_path, map_location=policy.device)
+    policy.eval_mode.load_state_dict(pre_policy)
+    policy = policy.eval_mode
     
     # dataset
-    train_dataset = HDF5Dataset(cfg.policy.collect.train_data_path, cfg.policy.collect.ignore_dim.copy())
-    eval_dataset = HDF5Dataset(cfg.policy.collect.eval_data_path, cfg.policy.collect.ignore_dim.copy())
-    train_dataloader = DataLoader(
-        train_dataset,
-        cfg.world_model.learn.batch_size,
-        shuffle=True,
-        sampler=None,
-        collate_fn=lambda x: x,
-        drop_last=True,
-    )
-    eval_dataloader = DataLoader(
-        eval_dataset,
-        cfg.world_model.test.batch_size,
-        shuffle=False,
-        sampler=None,
-        collate_fn=lambda x: x,
-        drop_last=True,
-    )
-    tb_logger = SummaryWriter(os.path.join('./{}/log/'.format(cfg.exp_name), 'serial'))
+    train_dataset = HDF5Dataset(cfg.policy.collect.train_data_path)
+    # eval_dataset = HDF5Dataset(cfg.policy.collect.eval_data_path)
     
-    # Env
-    env_fn, _, _ = get_vec_env_setting(cfg.env, collect=False, eval_=False)
-    # Random seed
-    set_pkg_seed(cfg.seed, use_cuda=cfg.world_model.cuda)
+    processed_hidden = []
+    print('start eval...')
+    for train_data in train_dataset:
+        obs = train_data['obs']
+        done = train_data['done']
+        obs = torch.as_tensor(obs).to(dtype=torch.float32)
+        inference_output = policy.forward({0: obs})
+        output = [v for v in inference_output.values()]
+        embed_obs = [to_ndarray(v['embed_obs']) for v in output][0]
+        train_data['hidden_obs'] = embed_obs
+        processed_hidden.append(train_data)
+    np.save(f'./{cfg.exp_name}/processed_hidden_train', np.stack(processed_hidden))
+    print('Done train set')
     
-    # world_model
-    world_model = create_world_model(cfg.world_model, env_fn(cfg.env), tb_logger)
-
-    print('start training...')
-    for epoch in range(cfg.world_model.learn.train_epoch):
-        t1 = time.time()
-        print(f'length: {len(train_dataloader)}')
-        for idx, train_data in enumerate(train_dataloader):
-            world_model.train(train_data, epoch, idx)
-        world_model.scheduler.step()
-        
-        if epoch % (cfg.world_model.learn.train_epoch // cfg.world_model.test.test_epoch) == 0:
-            for idx, eval_data in enumerate(eval_dataloader):
-                world_model.eval(eval_data, epoch)
-                if idx % 100 == 0:
-                    print(f'finish eval in epoch {epoch}')
-        world_model.epoch_log(epoch)
-
-        if epoch % 10 == 0:
-            path = f'{cfg.exp_name}/model'
-            if not os.path.exists(path):
-                os.mkdir(path)
-            world_model.save_model(f'{path}/epoch{epoch}')
-        
-        print(f'============== exp name: {cfg.exp_name}')
-        print(f'finished epoch {epoch}, {time.time() - t1:.2f} sec.')
-
+    
+    # dataset
+    eval_dataset = HDF5Dataset(cfg.policy.collect.eval_data_path)
+    
+    processed_hidden = []
+    print('start eval...')
+    for train_data in eval_dataset:
+        obs = train_data['obs']
+        done = train_data['done']
+        obs = torch.as_tensor(obs).to(dtype=torch.float32)
+        inference_output = policy.forward({0: obs})
+        output = [v for v in inference_output.values()]
+        embed_obs = [to_ndarray(v['embed_obs']) for v in output][0]
+        train_data['hidden_obs'] = embed_obs
+        processed_hidden.append(train_data)
+    np.save(f'./{cfg.exp_name}/processed_hidden_eval', np.stack(processed_hidden))
     print('Done.')
-    return world_model
+
+
+
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--seed', '-s', type=int, default=10)
+    parser.add_argument('--config', '-c', type=str, default='eval_sac_collect_hidden_config.py')
+    args = parser.parse_args()
+    config = Path(__file__).absolute().parent / 'config' / args.config
+    config = read_config(str(config))
+    config[0].exp_name = config[0].exp_name.replace('0', str(args.seed))
+    serial_pipeline(config, seed=args.seed)

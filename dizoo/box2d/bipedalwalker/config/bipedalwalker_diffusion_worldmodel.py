@@ -3,7 +3,7 @@
 from easydict import EasyDict
 
 main_config = dict(
-    exp_name="exp_v1.10_decoder",
+    exp_name="exp_v1.10_sigma",
     env=dict(
         env_name='BipedalWalker-v3',
         act_scale=True,
