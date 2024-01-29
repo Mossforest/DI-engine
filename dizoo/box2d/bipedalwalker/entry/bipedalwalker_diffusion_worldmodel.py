@@ -15,7 +15,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--seed', '-s', type=int, default=10)
+    parser.add_argument('--seed', '-s', type=int, default=27)
     parser.add_argument('--config', '-c', type=str, default='bipedalwalker_diffusion_worldmodel.py')
     args = parser.parse_args()
     train(args)

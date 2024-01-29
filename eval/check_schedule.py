@@ -39,8 +39,38 @@ n_timesteps = 1000
 s = 0.008
 steps = n_timesteps + 1
 x = torch.linspace(0, n_timesteps, steps, dtype = torch.float64)
-alphas_cumprod = torch.cos(((x / n_timesteps) + s) / (1 + s) * math.pi * 0.5) ** 2
-alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
+# alphas_cumprod = torch.cos(((x / n_timesteps) + s) / (1 + s) * math.pi * 0.5) ** 2
+# alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
+# betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
+# betas = torch.clip(betas, 0, 0.999)
+
+
+# alternative
+# def cosine_schedule(t, start=0, end=1, tau=1, clip_min=1e-9):
+#     # A gamma function based on cosine function.
+#     v_start = math.cos(start * math.pi / 2) ** (2 * tau)
+#     v_end = math.cos(end * math.pi / 2) ** (2 * tau)
+#     output = torch.cos((t * (end - start) + start) * math.pi / 2) ** (2 * tau)
+#     output = (v_end - output) / (v_end - v_start)
+#     return torch.clip(output, clip_min, 1.)
+
+# alphas_cumprod = cosine_schedule(x / n_timesteps, start=0.2, end=1, tau=1)
+
+
+# alternative - sigmoid
+def sigmoid_schedule(t, start=-3, end=3, tau=1.0, clip_min=1e-9):
+    # A gamma function based on sigmoid function.
+    def sigmoid(x):
+        return 1 / (1 + math.exp(-x))
+    v_start = sigmoid(start / tau)
+    v_end = sigmoid(end / tau)
+    output = torch.sigmoid((t * (end - start) + start) / tau)
+    output = (v_end - output) / (v_end - v_start)
+    return torch.clip(output, clip_min, 1.)
+
+alphas_cumprod = sigmoid_schedule(x / n_timesteps)
+
+# alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
 betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
 betas = torch.clip(betas, 0, 0.999)
 
@@ -74,20 +104,22 @@ coef21 = np.array(posterior_mean_coef1)
 coef22 = np.array(posterior_mean_coef2)
 coef3 = np.array(torch.exp(0.5 * posterior_log_variance_clipped))
 
-path = f'./eval/check_schedule_img/step{n_timesteps}'
+path = f'./eval/check_schedule_img/sigmoid_step{n_timesteps}'
 if not os.path.exists(path):
     os.mkdir(path)
-# draw(coef11, 'coef11', path)
-# draw(coef12, 'coef12', path)
-# draw(coef21, 'coef21', path)
-# draw(coef22, 'coef22', path)
-# draw(coef3, 'coef3', path)
-# draw(np.array(alphas_cumprod), 'alphas_cumprod', path)
-# draw(np.array(alphas), 'alphas', path)
-# draw(np.sqrt(np.array(alphas)), 'alphas_sqrt', path)
-# draw(np.sqrt(np.array(1-alphas)), '1_alphas_sqrt', path)
-draw(np.array(loss_weight_simp[:800]), 'loss_weight_n2', path)
-draw(np.array(loss_weight_simp), 'loss_weight', path)
+draw(coef11, 'coef11', path)
+draw(coef12, 'coef12', path)
+draw(coef21, 'coef21', path)
+draw(coef22, 'coef22', path)
+draw(coef3, 'coef3', path)
+draw(np.array(alphas_cumprod), 'alphas_cumprod', path)
+draw(np.array(alphas), 'alphas', path)
+draw(np.sqrt(np.array(alphas)), 'alphas_sqrt', path)
+draw(np.sqrt(np.array(1-alphas)), '1_alphas_sqrt', path)
+draw(np.array(loss_weight_simp[:800]), 'loss_weight_simp_n2', path)
+draw(np.array(loss_weight_simp), 'loss_weight_simp', path)
+draw(np.array(loss_weight[:800]), 'loss_weight_n2', path)
+draw(np.array(loss_weight), 'loss_weight', path)
 print(loss_weight[-10:])
 print(loss_weight_simp[-10:])
 draw(np.array(betas), 'betas', path)

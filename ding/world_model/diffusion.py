@@ -26,6 +26,7 @@ from ding.torch_utils import Adam
 from ding.model import ConvEncoder
 from ding.world_model.base_world_model import WorldModel
 from ding.world_model.model.diffusionnet import DiffusionNet
+from eval.pcgrad import PCGrad
 
 # ddpm
 Tuple = lambda *args: tuple(args)
@@ -132,10 +133,11 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             lr=self._cfg.learn.learning_rate,
             optim_type='adamw',
             weight_decay=1e-4,
-            # grad_clip_type='clip_norm',
-            # clip_value=0.5,
+            grad_clip_type='clip_norm',
+            clip_value=0.5,
         )
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, self._cfg.learn.train_epoch)
+        self.optimizer = PCGrad(self.optimizer)
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer.optimizer, self._cfg.learn.train_epoch)
         
         # self.lossfn = torch.nn.SmoothL1Loss(reduction='none', beta=2)  # (-1, 1)
         
@@ -173,16 +175,19 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         # weight = extract(self.posterior_log_variance_clipped, t, pred.shape)
         loss = F.mse_loss(pred, targ, reduction='none') #* weight
         # loss = self.lossfn(pred, targ)
+        loss = loss.mean(dim=0)
+        losses = []
+        for l in loss:
+            losses.append(l)
         info = {
             'loss': loss.mean().item(),
             # 'mean_pred': pred.mean().item(), 'mean_targ': targ.mean().item(),
             # 'min_pred': pred.min().item(), 'min_targ': targ.min().item(),
             # 'max_pred': pred.max().item(), 'max_targ': targ.max().item(),
         }
-        idx_loss = loss.mean(0)
-        for idx, sig in enumerate(idx_loss):
+        for idx, sig in enumerate(loss):
             info[f'loss_dim_{idx}'] = sig.item()
-        return loss, info
+        return losses, loss, info
 
     # model.train with dataset w.o. buffer
     def train(self, data: dict, epoch: int, step: int):
@@ -230,14 +235,14 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         )
         x_recon = self.model(x_noisy, cond_a, cond_s, t, background)
         assert x_start.shape == x_recon.shape
-        loss, logvar = self.loss_fn(x_recon, noise)
+        losses, loss, logvar = self.loss_fn(x_recon, noise)
         
         # train with loss
-        self.optimizer.zero_grad()
-        loss.mean().backward()
+        # self.optimizer.zero_grad()
+        self.optimizer.pc_backward(losses)
         self.log_grad(epoch, step)
         self.optimizer.step()
-        lr = self.optimizer.param_groups[0]['lr']
+        lr = self.optimizer.optimizer.param_groups[0]['lr']
         # log
         if self.tb_logger is not None:
             for k, v in logvar.items():
@@ -322,7 +327,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
                 t = torch.full((self.test_batch_size,), i, dtype=torch.long, device=x_start.device)
                 x = self.p_sample_fn(x, cond_a, cond_s, t, background)
             x_recon_overall = x
-            loss, logvar = self.loss_fn(x_recon_overall, x_start)
+            losses, loss, logvar = self.loss_fn(x_recon_overall, x_start)
         # log
         if self.tb_logger is not None:
             for k, v in logvar.items():
@@ -344,7 +349,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
             )
             noise_recon = self.model(x_noisy, cond_a, cond_s, t, background)
             assert x_start.shape == noise_recon.shape
-            loss, logvar = self.loss_fn(noise_recon, noise)
+            losses, loss, logvar = self.loss_fn(noise_recon, noise)
         if self.tb_logger is not None:
             for k, v in logvar.items():
                 name = 'eval_model/noise_' + k
@@ -357,7 +362,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
                 t = torch.full((self.test_batch_size,), i, dtype=torch.long, device=x_start.device)
                 x = self.p_sample_fn(x, cond_a, cond_s, t, background)
             x_recon_fixgauss = x
-            loss, logvar = self.loss_fn(x_recon_fixgauss, x_start)
+            losses, loss, logvar = self.loss_fn(x_recon_fixgauss, x_start)
         if self.tb_logger is not None:
             for k, v in logvar.items():
                 name = 'eval_model/fixgauss_' + k
@@ -365,7 +370,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
         
         # [v0.4] new eval 3
         with torch.no_grad():
-            loss, logvar = self.loss_fn(x_recon_fixgauss, x_recon_overall)
+            losses, loss, logvar = self.loss_fn(x_recon_fixgauss, x_recon_overall)
         if self.tb_logger is not None:
             for k, v in logvar.items():
                 name = 'eval_model/fixornot_' + k
@@ -378,7 +383,7 @@ class DiffusionWorldModel(WorldModel, nn.Module):
                 t = torch.full((self.test_batch_size,), i, dtype=torch.long, device=x_start.device)
                 x = self.p_sample_fn(x, cond_a, cond_s, t, background)
             x_recon_nofix = x
-            loss, logvar = self.loss_fn(x_recon_overall, x_recon_nofix)
+            losses, loss, logvar = self.loss_fn(x_recon_overall, x_recon_nofix)
         if self.tb_logger is not None:
             for k, v in logvar.items():
                 name = 'eval_model/nofix_' + k
