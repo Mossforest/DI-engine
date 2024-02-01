@@ -14,9 +14,11 @@ import matplotlib.pyplot as plt
 from ding.envs import get_vec_env_setting, create_env_manager
 # from ding.worker import BaseLearner, InteractionSerialEvaluator
 from ding.config import read_config, compile_config
+from ding.policy import create_policy
 from ding.world_model import create_world_model
 from ding.utils import set_pkg_seed
-from ding.utils.data import create_dataset
+from ding.utils.data import default_collate
+from ding.torch_utils import to_ndarray
 
 class HDF5Dataset(Dataset):
 
@@ -31,6 +33,9 @@ class HDF5Dataset(Dataset):
         self._cal_statistics()
         
         # delete ignore_dim
+        if ignore_dim == None:
+            return
+        ignore_dim = ignore_dim.copy()
         ignore_dim.reverse()
         for idx in ignore_dim:
             self._data['obs'] = np.delete(self._data['obs'], idx, axis=-1)
@@ -89,7 +94,15 @@ def draw(x, y, name, path):
     plt.close()
 
 
-def serial_pipeline_worldmodel(
+def encoding(obs, policy):
+    obs = torch.as_tensor(obs).to(dtype=torch.float32)
+    inference_output = policy.forward({0: obs})
+    output = [v for v in inference_output.values()]
+    embed_obs = output[0]['embed_obs']
+    return embed_obs
+
+
+def serial_pipeline_worldmodel_hidden(
         input_cfg: Union[str, Tuple[dict, dict]],
         seed: int = 0
 ):
@@ -103,8 +116,8 @@ def serial_pipeline_worldmodel(
     print(f'============== exp name: {cfg.exp_name}')
     
     # dataset
-    train_dataset = HDF5Dataset(cfg.policy.collect.train_data_path, cfg.policy.collect.ignore_dim.copy())
-    eval_dataset = HDF5Dataset(cfg.policy.collect.eval_data_path, cfg.policy.collect.ignore_dim.copy())
+    train_dataset = HDF5Dataset(cfg.policy.collect.train_data_path, cfg.policy.collect.ignore_dim)
+    eval_dataset = HDF5Dataset(cfg.policy.collect.eval_data_path, cfg.policy.collect.ignore_dim)
     train_dataloader = DataLoader(
         train_dataset,
         cfg.world_model.learn.batch_size,
@@ -128,6 +141,12 @@ def serial_pipeline_worldmodel(
     # Random seed
     set_pkg_seed(cfg.seed, use_cuda=cfg.world_model.cuda)
     
+    # agent
+    policy = create_policy(cfg.policy, enable_field=['eval'])
+    pre_policy = torch.load(cfg.policy.eval.state_dict_path, map_location=policy.device)
+    policy.eval_mode.load_state_dict(pre_policy)
+    policy = policy.eval_mode
+    
     # world_model
     world_model = create_world_model(cfg.world_model, env_fn(cfg.env), tb_logger)
 
@@ -135,16 +154,21 @@ def serial_pipeline_worldmodel(
     for epoch in range(cfg.world_model.learn.train_epoch):
         t1 = time.time()
         print(f'length: {len(train_dataloader)}')
-        t = 0
         for idx, train_data in enumerate(train_dataloader):
-            _, _, tt = world_model.train(train_data, epoch, idx)
-            t += tt
-        print(f'conflicting time: {t}')
-        exit()
+            train_data = default_collate(train_data)
+            # 1. go through encoder
+            train_data['obs'] = encoding(train_data['obs'], policy)
+            train_data['next_obs'] = encoding(train_data['next_obs'], policy)
+            # 2. go through world model
+            world_model.train(train_data, epoch, idx)
         world_model.scheduler.step()
         
         if epoch % (cfg.world_model.learn.train_epoch // cfg.world_model.test.test_epoch) == 0:
             for idx, eval_data in enumerate(eval_dataloader):
+                eval_data = default_collate(eval_data)
+                # 1. go through encoder
+                eval_data['obs'] = encoding(eval_data['obs'], policy)
+                eval_data['next_obs'] = encoding(eval_data['next_obs'], policy)
                 world_model.eval(eval_data, epoch)
                 if idx % 100 == 0:
                     print(f'finish eval in epoch {epoch}')
