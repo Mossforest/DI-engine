@@ -24,69 +24,6 @@ from ding.torch_utils import to_ndarray, get_shape0
 from pathlib import Path
 from ding.framework.middleware.functional.evaluator import VectorEvalMonitor
 
-class HDF5Dataset(Dataset):
-
-    def __init__(self, data_path, ignore_dim):
-        # if 'dataset' in cfg:
-        #     self.context_len = cfg.dataset.context_len
-        # else:
-        #     self.context_len = 0
-        data = h5py.File(data_path, 'r')
-        self._load_data(data)
-        self._norm_data()
-        self._cal_statistics()
-        
-        # delete ignore_dim
-        ignore_dim.reverse()
-        print(ignore_dim)
-        for idx in ignore_dim:
-            print(f'delete {ignore_dim}, ')
-            self._data['obs'] = np.delete(self._data['obs'], idx, axis=-1)
-            self._data['next_obs'] = np.delete(self._data['next_obs'], idx, axis=-1)
-        
-        print(f'--debug--: data shape: {self._data["obs"].shape}')
-
-    def __len__(self) -> int:
-        return len(self._data['obs'])
-
-    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        return {k: self._data[k][idx] for k in self._data.keys()}
-
-    def _load_data(self, dataset: Dict[str, np.ndarray]) -> None:
-        self._data = {}
-        for k in dataset.keys():
-            self._data[k] = dataset[k][:]
-
-    def _norm_data(self):    # TODO: also do norm in eval before world model, re-norm after model
-        # renorm obs of bipedalwalker
-        obs_high = np.array([3.14, 5., 5., 5., 3.14, 5., 3.14, 5., 5., 3.14, 5., 3.14, 5., 5., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.])
-        obs_low  = np.array([-3.14, -5., -5., -5., -3.14, -5., -3.14, -5., -0., -3.14, -5., -3.14, -5., -0., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.])
-        # press to [-1, 1]
-        self._data['obs'] = (2 * self._data['obs'] - obs_high - obs_low) / (obs_high - obs_low)
-        self._data['next_obs'] = (2 * self._data['next_obs'] - obs_high - obs_low) / (obs_high - obs_low)
-
-    def _cal_statistics(self, eps=1e-3):
-        self._mean = self._data['obs'].mean(0)
-        self._std = self._data['obs'].std(0) + eps
-        action_max = self._data['action'].max(0)
-        action_min = self._data['action'].min(0)
-        buffer = 0.05 * (action_max - action_min)
-        action_max = action_max.astype(float) + buffer
-        action_min = action_max.astype(float) - buffer
-        self._action_bounds = np.stack([action_min, action_max], axis=0)
-
-    @property
-    def mean(self):
-        return self._mean
-
-    @property
-    def std(self):
-        return self._std
-
-    @property
-    def action_bounds(self) -> np.ndarray:
-        return self._action_bounds
-
 
 def norm_data(obs, env='bipedalwalker'):
     if env == 'bipedalwalker':

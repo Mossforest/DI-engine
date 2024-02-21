@@ -27,7 +27,6 @@ from ding.torch_utils import Adam
 from ding.model import ConvEncoder
 from ding.world_model.base_world_model import WorldModel
 from ding.world_model.model.diffusionnet import DiffusionNet
-from eval.pcgrad import PCGrad
 from ding.torch_utils.optimizer_helper import configure_weight_decay
 
 # ddpm

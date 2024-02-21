@@ -33,7 +33,7 @@ class HDF5Dataset(Dataset):
         #     self.context_len = 0
         data = h5py.File(data_path, 'r')
         self._load_data(data)
-        self._norm_data()
+        # self._norm_data()
         self._cal_statistics()
 
     def __len__(self) -> int:

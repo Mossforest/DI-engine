@@ -33,7 +33,7 @@ bipedalwalker_sac_config = dict(
         learning_rate=0.0003,
         train_epoch=1000,
     ),
-    train_data_path='bipedalwalker_data_hidden/processed_hidden_train.npy',
+    train_data_path='bipedalwalker_data_hidden_240202_081521/processed_hidden_train.npy',
     discrete=[8,13],
     discrete_weight=1e-2,
 )
@@ -79,6 +79,18 @@ def collate_fn(batch):
     for key in merged_dict.keys():
         merged_dict[key] = torch.Tensor(merged_dict[key])
     return merged_dict
+
+
+
+def norm_data(obs, env='bipedalwalker'):
+    if env == 'bipedalwalker':
+        obs_high = torch.Tensor([3.14, 5., 5., 5., 3.14, 5., 3.14, 5., 5., 3.14, 5., 3.14, 5., 5., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.]).to(obs.device)
+        obs_low  = torch.Tensor([-3.14, -5., -5., -5., -3.14, -5., -3.14, -5., -0., -3.14, -5., -3.14, -5., -0., -1., -1., -1., -1., -1., -1., -1., -1., -1., -1.]).to(obs.device)
+        # press to [-1, 1]
+        obs = (2 * obs - obs_high - obs_low) / (obs_high - obs_low)
+        return obs
+    else:
+        assert False, f"no support norm for {env}!"
 
 
 if __name__ == "__main__":
@@ -127,6 +139,7 @@ if __name__ == "__main__":
         for idx, train_data in enumerate(train_dataloader):
             hidden = train_data['hidden_obs']
             real = train_data['obs']
+            real = norm_data(real) # the real need to be normed for the loss (in normed space)
             if torch.cuda.is_available() and cfg.cuda:
                 hidden = hidden.to('cuda')
                 real = real.to('cuda')
