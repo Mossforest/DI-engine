@@ -8,11 +8,11 @@ from ding.config import compile_config
 from ding.model.template import ContinuousQAC, VAC
 from ding.policy import PPOPolicy
 from ding.worker import SampleSerialCollector, InteractionSerialEvaluator, BaseLearner
-from dizoo.metadrive.env.drive_env import MetaDrivePPOOriginEnv
+from dizoo.metadrive.env.drive_env import MetaDriveEnv
 from dizoo.metadrive.env.drive_wrapper import DriveEnvWrapper
 
 metadrive_basic_config = dict(
-    exp_name='metadrive_onppo_seed0',
+    exp_name='metadrive_test_seed0',
     env=dict(
         metadrive=dict(
             use_render=False,
@@ -34,8 +34,8 @@ metadrive_basic_config = dict(
         ),
         n_evaluator_episode=16,
         stop_value=255,
-        collector_env_num=8,
-        evaluator_env_num=8,
+        collector_env_num=1,
+        evaluator_env_num=1,
     ),
     policy=dict(
         cuda=True,
@@ -66,7 +66,7 @@ main_config = EasyDict(metadrive_basic_config)
 
 
 def wrapped_env(env_cfg, wrapper_cfg=None):
-    return DriveEnvWrapper(MetaDrivePPOOriginEnv(env_cfg), wrapper_cfg)
+    return DriveEnvWrapper(MetaDriveEnv(env_cfg), wrapper_cfg)
 
 
 def main(cfg):
