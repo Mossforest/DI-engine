@@ -8,14 +8,15 @@ from ding.config import compile_config
 from ding.model.template import ContinuousQAC, VAC
 from ding.policy import PPOPolicy
 from ding.worker import SampleSerialCollector, InteractionSerialEvaluator, BaseLearner
-from dizoo.metadrive.env.drive_env import MetaDriveEnv
-from dizoo.metadrive.env.drive_wrapper import DriveEnvWrapper
+from dizoo.metadrive.env.drive_env import VaryingDynamicsEnv
+from dizoo.metadrive.env.drive_wrapper import VaryingDynamicsEnvWrapper
 
 metadrive_basic_config = dict(
-    exp_name='metadrive_onppo_seed0',
+    exp_name='metadrive_onppo_varydyna_seed0',
     env=dict(
         metadrive=dict(
             use_render=False,
+            num_scenarios=3000, # num of random env with different dynamics, large enough to make sure diversity
             traffic_density=0.10,  # Density of vehicles occupying the roads, range in [0,1]
             map='XSOS',  # Int or string: an easy way to fill map_config
             horizon=4000,  # Max step number
@@ -66,7 +67,7 @@ main_config = EasyDict(metadrive_basic_config)
 
 
 def wrapped_env(env_cfg, wrapper_cfg=None):
-    return DriveEnvWrapper(MetaDriveEnv(env_cfg), wrapper_cfg)
+    return VaryingDynamicsEnvWrapper(VaryingDynamicsEnv(env_cfg), wrapper_cfg)
 
 
 def main(cfg):

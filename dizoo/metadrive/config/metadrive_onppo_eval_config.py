@@ -7,16 +7,17 @@ from ding.config import compile_config
 from ding.model.template import VAC
 from ding.policy import PPOPolicy
 from ding.worker import SampleSerialCollector, InteractionSerialEvaluator, BaseLearner
-from dizoo.metadrive.env.drive_env import MetaDrivePPOOriginEnv
+from dizoo.metadrive.env.drive_env import MetaDriveEnv
 from dizoo.metadrive.env.drive_wrapper import DriveEnvWrapper
 
 # Load the trained model from this direction, if None, it will initialize from scratch
-model_dir = None
+model_dir = '/mnt/nfs/chenxinyan/DI-engine/metadrive_onppo_seed0/ckpt/iteration_700000.pth.tar'
 metadrive_basic_config = dict(
     exp_name='metadrive_onppo_eval_seed0',
     env=dict(
         metadrive=dict(
-            use_render=True,
+            use_render=False,
+            image_observation=True,
             traffic_density=0.10,  # Density of vehicles occupying the roads, range in [0,1]
             map='XSOS',  # Int or string: an easy way to fill map_config
             horizon=4000,  # Max step number
@@ -28,6 +29,9 @@ metadrive_basic_config = dict(
             decision_repeat=20,  # Reciprocal of decision frequency
             out_of_route_done=True,  # Game over if driving out of road
             show_bird_view=False,  # Only used to evaluate, whether to draw five channels of bird-view image
+            vehicle_config={
+                "image_source": "main_camera",
+            },
         ),
         manager=dict(
             shared_memory=False,
@@ -68,7 +72,7 @@ main_config = EasyDict(metadrive_basic_config)
 
 
 def wrapped_env(env_cfg, wrapper_cfg=None):
-    return DriveEnvWrapper(MetaDrivePPOOriginEnv(env_cfg), wrapper_cfg)
+    return DriveEnvWrapper(MetaDriveEnv(env_cfg), wrapper_cfg)
 
 
 def main(cfg):

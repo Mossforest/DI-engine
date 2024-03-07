@@ -7,18 +7,17 @@ import numpy as np
 from ditk import logging
 from typing import Union, Dict, AnyStr, Tuple, Optional
 from gym.envs.registration import register
-from metadrive.manager.traffic_manager import TrafficMode
-from metadrive.obs.top_down_obs_multi_channel import TopDownMultiChannel
-from metadrive.constants import RENDER_MODE_NONE, DEFAULT_AGENT, REPLAY_DONE, TerminationState
-from metadrive.envs.base_env import BaseEnv
 
+from metadrive.obs.top_down_obs_multi_channel import TopDownMultiChannel
 from metadrive.component.algorithm.blocks_prob_dist import PGBlockDistConfig
 from metadrive.component.map.base_map import BaseMap
 from metadrive.component.map.pg_map import parse_map_config, MapGenerateMethod
 from metadrive.component.pgblock.first_block import FirstPGBlock
 from metadrive.component.vehicle.base_vehicle import BaseVehicle
-from metadrive.constants import DEFAULT_AGENT, TerminationState
+from metadrive.constants import RENDER_MODE_NONE, DEFAULT_AGENT, REPLAY_DONE, TerminationState
 from metadrive.envs.base_env import BaseEnv
+from metadrive.envs.metadrive_env import MetaDriveEnv
+from metadrive.manager.agent_manager import VehicleAgentManager
 from metadrive.manager.traffic_manager import TrafficMode
 from metadrive.utils import clip, Config, get_np_random
 
@@ -394,3 +393,53 @@ class MetaDriveEnv(BaseEnv):
     def clone(self, caller: str):
         cfg = copy.deepcopy(self.raw_cfg)
         return MetaDriveEnv(cfg)
+
+
+
+VaryingDynamicsConfig = dict(
+    vehicle_config=dict(vehicle_model="varying_dynamics", ),
+    random_dynamics=dict(
+        # We will sample each parameter from (min_value, max_value)
+        # You can set it to None to stop randomizing the parameter.
+        max_engine_force=(100, 3000),
+        max_brake_force=(20, 600),
+        wheel_friction=(0.1, 2.5),
+        max_steering=(10, 80),  # The maximum steering angle if action = +-1
+        mass=(300, 3000)
+    )
+)
+
+
+class VaryingDynamicsAgentManager(VehicleAgentManager):
+    def reset(self):
+        # Randomize ego vehicle's dynamics here
+        random_fields = self.engine.global_config["random_dynamics"]
+        dynamics = {}
+        for parameter, para_range in random_fields.items():
+            if para_range is None:
+                continue
+            elif isinstance(para_range, (tuple, list)):
+                assert len(para_range) == 2
+                assert para_range[1] >= para_range[0]
+                if para_range[1] == para_range[0]:
+                    dynamics[parameter] = para_range[0]
+                else:
+                    dynamics[parameter] = self.np_random.uniform(para_range[0], para_range[1])
+            else:
+                raise ValueError("Unknown parameter range: {}".format(para_range))
+
+        assert len(self.engine.global_config["agent_configs"]) == 1, "Only supporting single-agent now!"
+        self.engine.global_config["agent_configs"]["default_agent"].update(dynamics)
+        super(VaryingDynamicsAgentManager, self).reset()
+
+
+class VaryingDynamicsEnv(MetaDriveEnv):
+    @classmethod
+    def default_config(cls):
+        config = super(VaryingDynamicsEnv, cls).default_config()
+        config.update(VaryingDynamicsConfig)
+        return config
+
+    def _get_agent_manager(self):
+        return VaryingDynamicsAgentManager(init_observations=self._get_observations())
+

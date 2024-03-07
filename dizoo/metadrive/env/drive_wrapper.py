@@ -147,3 +147,18 @@ class DriveEnvWrapper(gym.Wrapper):
     def clone(self, caller: str):
         cfg = copy.deepcopy(self._cfg)
         return DriveEnvWrapper(self.env.clone(caller), cfg)
+
+
+class VaryingDynamicsEnvWrapper(DriveEnvWrapper):
+    def reset(self, *args, **kwargs) -> Any:
+        obs = super().reset(*args, **kwargs)
+        # debug
+        # print('+'*20, "Current Dynamics Parameters:", self.env.agent.get_dynamics_parameters())
+        # debug
+        return obs
+
+    def step(self, action: Any = None) -> BaseEnvTimestep:
+        package = super().step(action)
+        obs, rew, done, info = package
+        info.update(self.env.agent.get_dynamics_parameters())
+        return BaseEnvTimestep(obs, rew, done, info)
